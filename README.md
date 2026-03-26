@@ -31,6 +31,10 @@ openclaw plugins install ./
 
 后续发布到 npm 后，也可以按包名安装。
 
+```bash
+openclaw plugins install @laevateinzzl/openclaw-rocketchat-bot
+```
+
 ## 配置示例
 
 下面的示例表达的是 `channels.rocketchat` 这段配置结构：

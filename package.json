@@ -1,10 +1,13 @@
 {
-  "name": "rocketchat",
+  "name": "@laevateinzzl/openclaw-rocketchat-bot",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Rocket.Chat channel plugin for OpenClaw",
   "type": "module",
   "main": "build/index.js",
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "build",
     "src",
@@ -35,7 +38,7 @@
       ]
     },
     "install": {
-      "npmSpec": "rocketchat",
+      "npmSpec": "@laevateinzzl/openclaw-rocketchat-bot",
       "localPath": ".",
       "defaultChoice": "npm"
     }

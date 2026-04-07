@@ -10,6 +10,12 @@ export type InboundAttachment = {
   raw: unknown;
 };
 
+type MessageAttachmentEnvelope = {
+  attachments?: unknown[];
+  file?: unknown;
+  files?: unknown[];
+};
+
 type AttachmentRecord = {
   _id?: string;
   title?: string;
@@ -56,14 +62,51 @@ const DOCUMENT_MIME_TYPES = new Set([
   "text/plain"
 ]);
 
-export function normalizeInboundAttachments(inputs: unknown[]): InboundAttachment[] {
-  return inputs.map((input) => toInboundAttachment(input));
+export function normalizeInboundAttachments(
+  inputs: unknown[],
+  options?: {
+    serverUrl?: string;
+  }
+): InboundAttachment[] {
+  return inputs.map((input) => toInboundAttachment(input, options));
 }
 
-function toInboundAttachment(input: unknown): InboundAttachment {
+export function getMessageAttachmentInputs(message: MessageAttachmentEnvelope): unknown[] {
+  const attachmentRecords = toAttachmentRecords(message.attachments ?? []);
+  const fileRecords = toAttachmentRecords([
+    ...(message.file ? [message.file] : []),
+    ...(message.files ?? [])
+  ]);
+  const unmatchedAttachments = attachmentRecords.map((record) => ({
+    record,
+    used: false
+  }));
+
+  const mergedFiles = fileRecords.map((fileRecord) => {
+    const matchIndex = findMatchingAttachmentIndex(fileRecord, unmatchedAttachments);
+    if (matchIndex < 0) {
+      return fileRecord;
+    }
+
+    unmatchedAttachments[matchIndex]!.used = true;
+    return mergeAttachmentRecord(unmatchedAttachments[matchIndex]!.record, fileRecord);
+  });
+
+  return [
+    ...mergedFiles,
+    ...unmatchedAttachments.filter((entry) => !entry.used).map((entry) => entry.record)
+  ];
+}
+
+function toInboundAttachment(
+  input: unknown,
+  options?: {
+    serverUrl?: string;
+  }
+): InboundAttachment {
   const record = asAttachmentRecord(input);
   const mimeType = getMimeType(record);
-  const url = getAttachmentUrl(record);
+  const url = getAttachmentUrl(record, options?.serverUrl);
   const fileName = getFileName(record, url);
 
   return {
@@ -89,12 +132,67 @@ function isFileRecord(record: AttachmentRecord | null): boolean {
   return Boolean(record?._id);
 }
 
+function toAttachmentRecords(inputs: unknown[]): AttachmentRecord[] {
+  return inputs
+    .map((input) => asAttachmentRecord(input))
+    .filter((record): record is AttachmentRecord => record !== null);
+}
+
+function findMatchingAttachmentIndex(
+  fileRecord: AttachmentRecord,
+  attachments: Array<{ record: AttachmentRecord; used: boolean }>
+): number {
+  const fileName = getComparableFileName(fileRecord);
+  if (fileName) {
+    const exactIndex = attachments.findIndex(
+      (entry) => !entry.used && getComparableFileName(entry.record) === fileName
+    );
+    if (exactIndex >= 0) {
+      return exactIndex;
+    }
+  }
+
+  const remainingIndexes = attachments
+    .map((entry, index) => (entry.used ? -1 : index))
+    .filter((index) => index >= 0);
+  return remainingIndexes.length === 1 ? remainingIndexes[0]! : -1;
+}
+
+function mergeAttachmentRecord(
+  attachmentRecord: AttachmentRecord,
+  fileRecord: AttachmentRecord
+): AttachmentRecord {
+  return {
+    ...attachmentRecord,
+    ...fileRecord,
+    _id: fileRecord._id ?? attachmentRecord._id,
+    title: attachmentRecord.title ?? fileRecord.name ?? fileRecord.filename,
+    title_link:
+      attachmentRecord.title_link ??
+      attachmentRecord.url ??
+      fileRecord.title_link ??
+      fileRecord.url,
+    url:
+      fileRecord.url ??
+      attachmentRecord.url ??
+      attachmentRecord.title_link ??
+      fileRecord.title_link,
+    type: fileRecord.type ?? attachmentRecord.type,
+    mimeType: fileRecord.mimeType ?? attachmentRecord.mimeType,
+    mimetype: fileRecord.mimetype ?? attachmentRecord.mimetype,
+    contentType: fileRecord.contentType ?? attachmentRecord.contentType,
+    name: fileRecord.name ?? attachmentRecord.name ?? attachmentRecord.filename ?? attachmentRecord.title,
+    filename: fileRecord.filename ?? attachmentRecord.filename ?? fileRecord.name ?? attachmentRecord.title,
+    size: fileRecord.size ?? attachmentRecord.size
+  };
+}
+
 function getMimeType(record: AttachmentRecord | null): string | undefined {
   const value = record?.type ?? record?.mimeType ?? record?.mimetype ?? record?.contentType;
   return typeof value === "string" && value.trim().length > 0 ? value.trim().toLowerCase() : undefined;
 }
 
-function getAttachmentUrl(record: AttachmentRecord | null): string | undefined {
+function getAttachmentUrl(record: AttachmentRecord | null, serverUrl: string | undefined): string | undefined {
   const candidates = [
     record?.url,
     record?.title_link,
@@ -102,7 +200,8 @@ function getAttachmentUrl(record: AttachmentRecord | null): string | undefined {
     record?.video_url,
     record?.audio_url
   ];
-  return candidates.find((value): value is string => typeof value === "string" && value.length > 0);
+  const rawUrl = candidates.find((value): value is string => typeof value === "string" && value.length > 0);
+  return rawUrl ? resolveAttachmentUrl(rawUrl, serverUrl) : undefined;
 }
 
 function getFileName(record: AttachmentRecord | null, url: string | undefined): string | undefined {
@@ -163,6 +262,11 @@ function classifyAttachment(
   return "unknown";
 }
 
+function getComparableFileName(record: AttachmentRecord | null): string | undefined {
+  const fileName = getFileName(record, getAttachmentUrl(record, undefined));
+  return fileName?.trim().toLowerCase();
+}
+
 function getExtension(fileName: string | undefined): string | undefined {
   if (!fileName) {
     return undefined;
@@ -175,4 +279,20 @@ function getExtension(fileName: string | undefined): string | undefined {
   }
 
   return cleanName.slice(lastDot + 1);
+}
+
+function resolveAttachmentUrl(url: string, serverUrl: string | undefined): string {
+  try {
+    return new URL(url).toString();
+  } catch {
+    if (!serverUrl) {
+      return url;
+    }
+  }
+
+  try {
+    return new URL(url, serverUrl).toString();
+  } catch {
+    return url;
+  }
 }

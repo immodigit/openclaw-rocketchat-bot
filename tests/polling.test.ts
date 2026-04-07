@@ -176,6 +176,60 @@ describe("RestPollingTransport", () => {
     ]);
   });
 
+  it("does not drop attachment-only messages and merges file metadata with attachment links", async () => {
+    const events: InboundEvent[] = [];
+    const checkpointStore = createCheckpointStore();
+    const client = {
+      listSubscriptions: vi.fn().mockResolvedValue([{ rid: "room-1", t: "c" }]),
+      syncMessages: vi.fn().mockResolvedValue([
+        {
+          _id: "m-file-only",
+          rid: "room-1",
+          msg: "",
+          ts: "2026-03-26T10:01:00.000Z",
+          u: { _id: "user-a", username: "alice", name: "Alice" },
+          mentions: [],
+          attachments: [
+            {
+              title: "diagram.png",
+              title_link: "/file-upload/diagram.png"
+            }
+          ],
+          file: {
+            _id: "file-1",
+            name: "diagram.png",
+            mimetype: "image/png"
+          }
+        }
+      ])
+    };
+
+    const transport = new RestPollingTransport({
+      accountId: "main",
+      botUserId: "bot-user",
+      client,
+      checkpointStore,
+      serverUrl: "https://chat.example.com",
+      onEvent: async (event) => {
+        events.push(event);
+      }
+    });
+
+    await transport.pollOnce();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.text).toBe("");
+    expect(events[0]?.attachments).toEqual([
+      expect.objectContaining({
+        source: "rocketchat-file",
+        kind: "image",
+        fileName: "diagram.png",
+        mimeType: "image/png",
+        url: "https://chat.example.com/file-upload/diagram.png"
+      })
+    ]);
+  });
+
   it("does not advance the checkpoint when event handling fails", async () => {
     const checkpointStore = createCheckpointStore();
     const client = {

@@ -1,5 +1,5 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { PluginAccountConfig } from "./config.js";
@@ -178,8 +178,9 @@ export class RocketChatClient {
     options?: { fileName?: string }
   ): Promise<string> {
     await this.initialize();
+    const requestUrl = resolveRequestUrl(url, this.serverUrl);
 
-    const response = await this.fetchImpl(url, {
+    const response = await this.fetchImpl(requestUrl, {
       method: "GET",
       headers: {
         Accept: "*/*",
@@ -191,8 +192,10 @@ export class RocketChatClient {
       throw new RocketChatClientError(`Rocket.Chat attachment download failed: ${response.statusText}`);
     }
 
-    const tempDir = await mkdtemp(join(tmpdir(), "rocketchat-attachment-"));
-    const filePath = join(tempDir, resolveAttachmentFileName(url, options?.fileName));
+    const mediaRoot = resolveOpenClawMediaDir();
+    await mkdir(mediaRoot, { recursive: true });
+    const tempDir = await mkdtemp(join(mediaRoot, "rocketchat-attachment-"));
+    const filePath = join(tempDir, resolveAttachmentFileName(requestUrl, options?.fileName));
     const bytes = Buffer.from(await response.arrayBuffer());
     await writeFile(filePath, bytes);
 
@@ -373,6 +376,19 @@ function resolveAttachmentFileName(url: string, fileName: string | undefined): s
   }
 
   return "attachment";
+}
+
+function resolveRequestUrl(url: string, serverUrl: string): string {
+  try {
+    return new URL(url).toString();
+  } catch {
+    return new URL(url, serverUrl).toString();
+  }
+}
+
+function resolveOpenClawMediaDir(): string {
+  const openclawHome = process.env.OPENCLAW_HOME?.trim() || join(homedir(), ".openclaw");
+  return join(openclawHome, "media");
 }
 
 function sanitizeFileName(value: string): string {

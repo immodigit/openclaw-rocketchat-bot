@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -10,6 +13,7 @@ import type { RocketChatMessageRecord } from "../src/client.js";
 describe("RocketChatClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("logs in with username and password", async () => {
@@ -229,6 +233,98 @@ describe("RocketChatClient", () => {
     });
     expect(message.file?.name).toBe("report.pdf");
     expect(message.files?.[0]?.mimetype).toBe("video/mp4");
+  });
+
+  it("resolves relative attachment urls against the Rocket.Chat server", async () => {
+    const openclawHome = await mkdtemp(`${tmpdir()}/openclaw-home-`);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          success: true,
+          user: {
+            _id: "user-1",
+            username: "rocketbot",
+            name: "Rocket Bot"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response("video-binary", {
+          status: 200
+        })
+      );
+
+    vi.stubEnv("OPENCLAW_HOME", openclawHome);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new RocketChatClient({
+      serverUrl: "https://chat.example.com",
+      auth: {
+        mode: "token",
+        userId: "user-1",
+        accessToken: "token-1"
+      }
+    });
+
+    const filePath = await client.downloadAttachmentToTempFile("/file-upload/demo.mp4", {
+      fileName: "demo.mp4"
+    });
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://chat.example.com/file-upload/demo.mp4",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          "X-Auth-Token": "token-1",
+          "X-User-Id": "user-1"
+        })
+      })
+    );
+    expect(filePath).toMatch(/demo\.mp4$/);
+
+    await rm(openclawHome, { recursive: true, force: true });
+  });
+
+  it("stores downloaded attachments inside the OpenClaw media directory", async () => {
+    const openclawHome = await mkdtemp(`${tmpdir()}/openclaw-home-`);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          success: true,
+          user: {
+            _id: "user-1",
+            username: "rocketbot",
+            name: "Rocket Bot"
+          }
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response("image-binary", {
+          status: 200
+        })
+      );
+
+    vi.stubEnv("OPENCLAW_HOME", openclawHome);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new RocketChatClient({
+      serverUrl: "https://chat.example.com",
+      auth: {
+        mode: "token",
+        userId: "user-1",
+        accessToken: "token-1"
+      }
+    });
+
+    const filePath = await client.downloadAttachmentToTempFile("/file-upload/demo.png", {
+      fileName: "demo.png"
+    });
+
+    expect(filePath).toContain(`${openclawHome}/media/rocketchat-attachment-`);
+
+    await rm(openclawHome, { recursive: true, force: true });
   });
 
   it("normalizes api failures", async () => {

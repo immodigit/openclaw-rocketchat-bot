@@ -328,6 +328,7 @@ function createInboundTransport(params: {
     accountId: params.account.accountId,
     botUserId: params.identity.userId,
     client: params.client,
+    serverUrl: params.account.serverUrl,
     checkpointStore: params.checkpointStore,
     pollIntervalMs: params.account.transport.pollIntervalMs,
     onError: params.onError,

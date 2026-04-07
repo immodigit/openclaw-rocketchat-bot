@@ -185,6 +185,92 @@ describe("createWebSocketTransport", () => {
     ]);
   });
 
+  it("does not drop attachment-only websocket messages and merges file metadata with attachment links", async () => {
+    const events: InboundEvent[] = [];
+    const socket = new FakeWebSocket();
+    const client = {
+      listSubscriptions: vi.fn().mockResolvedValue([{ rid: "room-9", t: "c" }])
+    };
+    const checkpointStore = createCheckpointStore();
+
+    const transport = createWebSocketTransport({
+      accountId: "main",
+      botUserId: "bot-user",
+      serverUrl: "https://chat.example.com",
+      userId: "bot-user",
+      authToken: "resume-token",
+      client,
+      checkpointStore,
+      onEvent: async (event) => {
+        events.push(event);
+      },
+      websocketFactory: () => socket
+    });
+
+    const startPromise = transport.start();
+
+    socket.emitOpen();
+    socket.emitMessage({ msg: "connected", session: "session-1" });
+    socket.emitMessage({
+      msg: "result",
+      id: "login",
+      result: {
+        id: "bot-user",
+        token: "resume-token",
+        type: "resume"
+      }
+    });
+
+    await startPromise;
+
+    socket.emitMessage({
+      msg: "changed",
+      collection: "stream-room-messages",
+      fields: {
+        eventName: "room-9",
+        args: [
+          {
+            _id: "m-file-only",
+            rid: "room-9",
+            msg: "",
+            ts: "2026-03-26T08:41:00.000Z",
+            u: {
+              _id: "user-2",
+              username: "bob",
+              name: "Bob"
+            },
+            mentions: [],
+            attachments: [
+              {
+                title: "demo.mp4",
+                title_link: "/file-upload/demo.mp4"
+              }
+            ],
+            file: {
+              _id: "file-1",
+              name: "demo.mp4",
+              mimetype: "video/mp4"
+            }
+          }
+        ]
+      }
+    });
+
+    await flushAsync();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.text).toBe("");
+    expect(events[0]?.attachments).toEqual([
+      expect.objectContaining({
+        source: "rocketchat-file",
+        kind: "video",
+        fileName: "demo.mp4",
+        mimeType: "video/mp4",
+        url: "https://chat.example.com/file-upload/demo.mp4"
+      })
+    ]);
+  });
+
   it("refreshes room subscriptions when the user room list changes", async () => {
     const socket = new FakeWebSocket();
     const client = {

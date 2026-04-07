@@ -42,6 +42,12 @@ openclaw plugins install ./
 openclaw plugins install @laevateinzzl/openclaw-rocketchat-bot
 ```
 
+如果使用本地目录联调，修改插件源码后记得重启 gateway 让 OpenClaw 重新加载：
+
+```bash
+openclaw gateway restart
+```
+
 ## 配置示例
 
 下面的示例表达的是 `channels.rocketchat` 这段配置结构：
@@ -85,6 +91,21 @@ channels:
           - "rocketbot"
 ```
 
+如果你希望机器人读取较大的 PDF，可以同时调高 OpenClaw 的 PDF 读取上限。默认上限通常是 `10 MB`，像扫描版教材或技术书很容易超限。
+
+```yaml
+agents:
+  defaults:
+    pdfMaxBytesMb: 32
+```
+
+也可以直接用 CLI 设置：
+
+```bash
+openclaw config set agents.defaults.pdfMaxBytesMb 32
+openclaw gateway restart
+```
+
 ## 行为说明
 
 - 单聊消息默认接入 OpenClaw
@@ -112,6 +133,7 @@ channels:
 - MIME 存在时优先按 MIME 分类；缺失时回退到文件扩展名
 - 传输层会统一标准化 `attachments`、`file`、`files` 三类 Rocket.Chat payload
 - 对 `file` 类附件，插件会优先视为需要鉴权的 Rocket.Chat 文件，并在 dispatch 完成后清理临时文件
+- 大于 OpenClaw 默认 PDF 上限的文档，即使附件链路正常，也可能在上游 PDF 工具阶段失败；这时需要调高 `agents.defaults.pdfMaxBytesMb`
 
 ## 开发命令
 

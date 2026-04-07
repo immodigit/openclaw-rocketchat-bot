@@ -5,7 +5,7 @@ import type {
   RocketChatRateLimitError,
   RocketChatSubscriptionRecord as SubscriptionRecord
 } from "../client.js";
-import { normalizeInboundAttachments } from "./attachments.js";
+import { getMessageAttachmentInputs, normalizeInboundAttachments } from "./attachments.js";
 import type { InboundEvent, InboundTransport } from "./types.js";
 
 type CheckpointStoreLike = {
@@ -21,6 +21,7 @@ type RestPollingTransportOptions = {
   accountId: string;
   botUserId: string;
   client: PollingClient;
+  serverUrl?: string;
   checkpointStore: CheckpointStoreLike;
   onEvent(event: InboundEvent): Promise<void>;
   onError?(error: unknown): Promise<void> | void;
@@ -35,6 +36,7 @@ export class RestPollingTransport implements InboundTransport {
   private readonly accountId: string;
   private readonly botUserId: string;
   private readonly client: PollingClient;
+  private readonly serverUrl: string | undefined;
   private readonly checkpointStore: CheckpointStoreLike;
   private readonly onEvent: (event: InboundEvent) => Promise<void>;
   private readonly onError: (error: unknown) => Promise<void> | void;
@@ -50,6 +52,7 @@ export class RestPollingTransport implements InboundTransport {
     this.accountId = options.accountId;
     this.botUserId = options.botUserId;
     this.client = options.client;
+    this.serverUrl = options.serverUrl;
     this.checkpointStore = options.checkpointStore;
     this.onEvent = options.onEvent;
     this.onError = options.onError ?? (() => undefined);
@@ -111,7 +114,7 @@ export class RestPollingTransport implements InboundTransport {
           continue;
         }
 
-        const event = toInboundEvent(this.accountId, subscription, message);
+        const event = toInboundEvent(this.accountId, subscription, message, this.serverUrl);
         await this.onEvent(event);
         await this.checkpointStore.markSeen(this.accountId, message._id);
         nextUpdatedSince = maxTimestampStrict(
@@ -152,7 +155,7 @@ export class RestPollingTransport implements InboundTransport {
       return true;
     }
 
-    if (!message.msg || message.msg.trim().length === 0) {
+    if ((!message.msg || message.msg.trim().length === 0) && getMessageAttachmentInputs(message).length === 0) {
       return true;
     }
 
@@ -167,7 +170,8 @@ export class RestPollingTransport implements InboundTransport {
 function toInboundEvent(
   accountId: string,
   subscription: SubscriptionRecord,
-  message: MessageRecord
+  message: MessageRecord,
+  serverUrl: string | undefined
 ): InboundEvent {
   return {
     accountId,
@@ -180,18 +184,12 @@ function toInboundEvent(
     mentions: (message.mentions ?? [])
       .map((mention) => mention.username ?? mention.name ?? "")
       .filter((mention): mention is string => mention.length > 0),
-    attachments: normalizeInboundAttachments(getAttachmentInputs(message)),
+    attachments: normalizeInboundAttachments(getMessageAttachmentInputs(message), {
+      serverUrl
+    }),
     sentAt: message.ts ?? new Date(0).toISOString(),
     raw: message
   };
-}
-
-function getAttachmentInputs(message: MessageRecord): unknown[] {
-  return [
-    ...(message.attachments ?? []),
-    ...(message.file ? [message.file] : []),
-    ...(message.files ?? [])
-  ];
 }
 
 function mapRoomType(type: string | undefined): InboundEvent["roomType"] {

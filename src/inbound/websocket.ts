@@ -1,5 +1,5 @@
 import type { RocketChatMessageRecord, RocketChatSubscriptionRecord } from "../client.js";
-import { normalizeInboundAttachments } from "./attachments.js";
+import { getMessageAttachmentInputs, normalizeInboundAttachments } from "./attachments.js";
 import type { InboundEvent, InboundTransport } from "./types.js";
 
 type CheckpointStoreLike = {
@@ -251,7 +251,7 @@ class RocketChatWebSocketTransport implements InboundTransport {
     const event = toInboundEvent(this.accountId, this.roomTypes.get(roomId) ?? "channel", {
       ...message,
       rid: roomId
-    });
+    }, this.serverUrl);
 
     await this.onEvent(event);
     await this.checkpointStore.markSeen(this.accountId, message._id);
@@ -266,7 +266,7 @@ class RocketChatWebSocketTransport implements InboundTransport {
       return true;
     }
 
-    if (!message.msg || message.msg.trim().length === 0) {
+    if ((!message.msg || message.msg.trim().length === 0) && getMessageAttachmentInputs(message).length === 0) {
       return true;
     }
 
@@ -314,7 +314,8 @@ function asMessageRecord(value: unknown): RocketChatMessageRecord | null {
 function toInboundEvent(
   accountId: string,
   roomType: InboundEvent["roomType"],
-  message: RocketChatMessageRecord
+  message: RocketChatMessageRecord,
+  serverUrl: string | undefined
 ): InboundEvent {
   return {
     accountId,
@@ -327,18 +328,12 @@ function toInboundEvent(
     mentions: (message.mentions ?? [])
       .map((mention) => mention.username ?? mention.name ?? "")
       .filter((mention): mention is string => Boolean(mention)),
-    attachments: normalizeInboundAttachments(getAttachmentInputs(message)),
+    attachments: normalizeInboundAttachments(getMessageAttachmentInputs(message), {
+      serverUrl
+    }),
     sentAt: message.ts ?? message._updatedAt ?? new Date(0).toISOString(),
     raw: message
   };
-}
-
-function getAttachmentInputs(message: RocketChatMessageRecord): unknown[] {
-  return [
-    ...(message.attachments ?? []),
-    ...(message.file ? [message.file] : []),
-    ...(message.files ?? [])
-  ];
 }
 
 function mapRoomType(type: string | undefined): InboundEvent["roomType"] {

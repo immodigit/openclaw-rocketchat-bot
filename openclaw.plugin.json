@@ -2,7 +2,7 @@
   "id": "rocketchat",
   "name": "Rocket.Chat",
   "description": "Rocket.Chat channel plugin for OpenClaw with REST polling and WebSocket inbound support.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "kind": "channel",
   "channels": ["rocketchat"],
   "configSchema": {

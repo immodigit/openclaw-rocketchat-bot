@@ -1,6 +1,6 @@
 {
   "name": "@laevateinzzl/openclaw-rocketchat-bot",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": false,
   "description": "Rocket.Chat channel plugin for OpenClaw",
   "type": "module",

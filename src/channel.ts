@@ -36,6 +36,7 @@ type ReplyStagePayload = {
 type ReplySession = {
   messageId: string;
   update(params: { kind: ReplyStageKind; payload: ReplyStagePayload }): Promise<void>;
+  hasFinalUpdate(): boolean;
   fail(error: unknown): Promise<void>;
 };
 
@@ -69,6 +70,12 @@ export async function sendReplyLifecycle(
   try {
     if (typeof options.run === "function") {
       await options.run(session);
+      if (!session.hasFinalUpdate()) {
+        await session.update({
+          kind: "final",
+          payload: {}
+        });
+      }
     } else {
       await session.update({
         kind: "final",
@@ -91,12 +98,17 @@ function normalizeMention(value: string): string {
 
 async function createReplySession(client: ReplyClient, roomId: string): Promise<ReplySession> {
   const messageId = await client.postMessage(roomId, THINKING_PLACEHOLDER);
+  let finalUpdated = false;
 
   return {
     messageId,
     update: async ({ kind, payload }) => {
+      if (kind === "final") {
+        finalUpdated = true;
+      }
       await client.updateMessage(roomId, messageId, formatReplyUpdate(kind, payload));
     },
+    hasFinalUpdate: () => finalUpdated,
     fail: async (_error) => {
       await client.updateMessage(roomId, messageId, formatReplyFailure());
     }

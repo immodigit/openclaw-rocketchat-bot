@@ -37,6 +37,17 @@ type ReplyDeliverInfo = {
   kind: "tool" | "block" | "final";
 };
 
+type ReplyDispatchCounts = {
+  tool: number;
+  block: number;
+  final: number;
+};
+
+type ReplyDispatchResult = {
+  queuedFinal: boolean;
+  counts: ReplyDispatchCounts;
+};
+
 type AttachmentDownloadClientLike = {
   downloadAttachmentToTempFile(
     url: string,
@@ -174,16 +185,73 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
     onRecordError: params.onRecordError
   });
 
-  await params.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
-    ctx: ctxPayload,
-    cfg: params.cfg,
-    dispatcherOptions: {
-      deliver: async (payload, info) => {
-        await params.deliver(normalizeOutboundReplyPayload(payload), info);
-      },
-      onError: params.onDispatchError
-    }
+  const dispatchResult = normalizeReplyDispatchResult(
+    await params.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
+      ctx: ctxPayload,
+      cfg: params.cfg,
+      dispatcherOptions: {
+        deliver: async (payload, info) => {
+          await params.deliver(normalizeOutboundReplyPayload(payload), info);
+        },
+        onError: params.onDispatchError
+      }
+    })
+  );
+
+  logAttachmentInfo(logContext, {
+    type: "reply-dispatch-result",
+    queuedFinal: dispatchResult.queuedFinal,
+    counts: dispatchResult.counts
   });
+
+  if (!hasAnyReplyDispatch(dispatchResult)) {
+    logAttachmentWarn(logContext, {
+      type: "reply-dispatch-empty",
+      queuedFinal: dispatchResult.queuedFinal,
+      counts: dispatchResult.counts
+    });
+  }
+}
+
+function normalizeReplyDispatchResult(value: unknown): ReplyDispatchResult {
+  if (!value || typeof value !== "object") {
+    return {
+      queuedFinal: false,
+      counts: {
+        tool: 0,
+        block: 0,
+        final: 0
+      }
+    };
+  }
+
+  const record = value as Record<string, unknown>;
+  const countsRecord =
+    record.counts && typeof record.counts === "object"
+      ? (record.counts as Record<string, unknown>)
+      : undefined;
+
+  return {
+    queuedFinal: record.queuedFinal === true,
+    counts: {
+      tool: toCount(countsRecord?.tool),
+      block: toCount(countsRecord?.block),
+      final: toCount(countsRecord?.final)
+    }
+  };
+}
+
+function hasAnyReplyDispatch(result: ReplyDispatchResult): boolean {
+  return (
+    result.queuedFinal ||
+    result.counts.tool > 0 ||
+    result.counts.block > 0 ||
+    result.counts.final > 0
+  );
+}
+
+function toCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 function normalizeOutboundReplyPayload(payload: unknown): OutboundReplyPayload {

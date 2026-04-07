@@ -159,4 +159,33 @@ describe("sendReplyLifecycle", () => {
       "处理失败，请稍后重试。"
     );
   });
+
+  it("resolves the placeholder with an empty final fallback when run completes without a final update", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      run: async (session) => {
+        await session.update({ kind: "tool", payload: {} });
+      }
+    });
+
+    expect(client.postMessage).toHaveBeenCalledTimes(1);
+    expect(client.updateMessage).toHaveBeenNthCalledWith(
+      1,
+      "room-1",
+      "placeholder-1",
+      "正在调用工具..."
+    );
+    expect(client.updateMessage).toHaveBeenNthCalledWith(
+      2,
+      "room-1",
+      "placeholder-1",
+      "未生成可发送的回复。"
+    );
+  });
 });

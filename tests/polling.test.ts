@@ -55,11 +55,13 @@ describe("RestPollingTransport", () => {
     expect(events).toHaveLength(2);
     expect(events[0]).toMatchObject({
       roomType: "direct",
-      messageId: "m1"
+      messageId: "m1",
+      attachments: []
     });
     expect(events[1]).toMatchObject({
       roomType: "channel",
-      mentions: ["rocketbot"]
+      mentions: ["rocketbot"],
+      attachments: []
     });
     await expect(checkpointStore.read("main")).resolves.toEqual({
       updatedSince: "2026-03-26T10:02:30.000Z",
@@ -126,6 +128,52 @@ describe("RestPollingTransport", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]?.messageId).toBe("ok-1");
+  });
+
+  it("maps Rocket.Chat attachments into inbound events", async () => {
+    const events: InboundEvent[] = [];
+    const checkpointStore = createCheckpointStore();
+    const client = {
+      listSubscriptions: vi.fn().mockResolvedValue([{ rid: "room-1", t: "c" }]),
+      syncMessages: vi.fn().mockResolvedValue([
+        {
+          _id: "m-attachment",
+          rid: "room-1",
+          msg: "see attachment",
+          ts: "2026-03-26T10:01:00.000Z",
+          u: { _id: "user-a", username: "alice", name: "Alice" },
+          mentions: [],
+          attachments: [
+            {
+              title: "diagram.png",
+              title_link: "https://chat.example.com/file-upload/diagram.png",
+              type: "image/png"
+            }
+          ]
+        }
+      ])
+    };
+
+    const transport = new RestPollingTransport({
+      accountId: "main",
+      botUserId: "bot-user",
+      client,
+      checkpointStore,
+      onEvent: async (event) => {
+        events.push(event);
+      }
+    });
+
+    await transport.pollOnce();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attachments).toEqual([
+      expect.objectContaining({
+        kind: "image",
+        fileName: "diagram.png",
+        url: "https://chat.example.com/file-upload/diagram.png"
+      })
+    ]);
   });
 
   it("does not advance the checkpoint when event handling fails", async () => {

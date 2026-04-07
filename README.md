@@ -11,14 +11,21 @@ Rocket.Chat channel plugin for OpenClaw.
   - `password`: `username + password`
 - 支持单聊
 - 支持群聊和频道，仅在明确 `@机器人` 时响应
-- 回复阶段先发送 `思考中...`，最终内容原地更新
+- 回复阶段先发送一次 `思考中...` 占位消息，并将 `tool` / `block` / `final` 可见输出持续更新到同一条消息
+- 入站附件支持图片、常见文档和主流视频格式
+- 公网可访问附件直接透传为上游 `MediaUrl` / `MediaUrls`
+- 需要 Rocket.Chat 鉴权的文件会临时下载为本地路径，再透传为 `MediaPath` / `MediaPaths`
 - 保留 Markdown fenced code block，不主动破坏代码块
 - 入站接入支持 REST 轮询和 WebSocket/DDP
 - 传输层已抽象，可按账号切换 transport
 
 ## 当前限制
 
-- 不包含附件、线程、反应、消息撤回同步
+- `capabilities.media` 仍保持 `false`，因为当前只支持入站附件入模，不支持 Rocket.Chat 出站媒体发送
+- 不支持线程、反应、消息编辑/撤回同步
+- 不支持 OCR、PDF 渲染、视频转码、音频转写等重处理流程
+- 非图片/文档/视频的附件会被标记为 `unknown`，可能被上游忽略或仅保留元数据
+- 受保护附件下载失败时不会阻断文本分发，但失败附件不会进入上游 media context
 - 没有真实 Rocket.Chat E2E 测试，当前以单元测试和模块集成测试为主
 
 ## 安装
@@ -87,6 +94,24 @@ channels:
 - `mentionNames` 用于补充别名，不需要重复写主用户名也能工作
 - `transport.mode: "websocket"` 会用 DDP 接收入站消息，并在房间列表变化时用一次 REST 刷新订阅
 - `transport.mode: "polling"` 继续保留，适合作为兼容回退
+- legacy `handleInboundMessage(...)` 回调和 `channelRuntime` 路径都会收到标准化后的 `attachments`
+- 可见回复阶段现在会按 `tool` / `block` / `final` 逐步更新同一条 Rocket.Chat 消息；如果中途失败，占位消息会替换成错误提示
+
+## 附件支持说明
+
+- 图片：
+  - `image/*`
+  - 常见扩展名：`.png`、`.jpg`、`.jpeg`、`.gif`、`.webp`、`.bmp`、`.tiff`
+- 文档：
+  - `application/pdf`
+  - Office：`.doc`、`.docx`、`.ppt`、`.pptx`、`.xls`、`.xlsx`
+  - 文本：`.txt`、`.md`、`.csv`、`.json`
+- 视频：
+  - `video/*`
+  - 常见扩展名：`.mp4`、`.mov`、`.mkv`、`.webm`、`.avi`、`.m4v`
+- MIME 存在时优先按 MIME 分类；缺失时回退到文件扩展名
+- 传输层会统一标准化 `attachments`、`file`、`files` 三类 Rocket.Chat payload
+- 对 `file` 类附件，插件会优先视为需要鉴权的 Rocket.Chat 文件，并在 dispatch 完成后清理临时文件
 
 ## 开发命令
 
@@ -160,6 +185,7 @@ src/
   format.ts
   checkpoints.ts
   inbound/
+    attachments.ts
     types.ts
     polling.ts
     websocket.ts
@@ -171,4 +197,4 @@ openclaw.plugin.json
 
 - 为 WebSocket transport 增加独立调试脚本
 - 为 websocket 断线重连增加更细粒度的 backoff 策略
-- 保持 mention 规则、回复占位、Rocket.Chat 出站逻辑不变
+- 评估是否将 `capabilities.media` 与未来的出站媒体发送能力一起升级

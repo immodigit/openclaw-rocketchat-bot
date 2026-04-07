@@ -1,3 +1,6 @@
+import { rm } from "node:fs/promises";
+
+import type { InboundAttachment } from "./inbound/attachments.js";
 import type { InboundEvent } from "./inbound/types.js";
 
 export type OpenClawConfigLike = {
@@ -30,6 +33,17 @@ type OutboundReplyPayload = {
   mediaUrl?: string;
   mediaUrls?: string[];
   replyToId?: string;
+};
+
+type ReplyDeliverInfo = {
+  kind: "tool" | "block" | "final";
+};
+
+type AttachmentDownloadClientLike = {
+  downloadAttachmentToTempFile(
+    url: string,
+    options?: { fileName?: string }
+  ): Promise<string>;
 };
 
 export type ChannelRuntimeLike = {
@@ -84,9 +98,10 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
   accountId: string;
   event: InboundEvent;
   channelRuntime: ChannelRuntimeLike;
-  deliver(payload: OutboundReplyPayload): Promise<void>;
+  attachmentClient?: AttachmentDownloadClientLike;
+  deliver(payload: OutboundReplyPayload, info: ReplyDeliverInfo): Promise<void>;
   onRecordError(err: unknown): void;
-  onDispatchError(err: unknown, info: { kind: "tool" | "block" | "final" }): void;
+  onDispatchError(err: unknown, info: ReplyDeliverInfo): void;
 }): Promise<void> {
   const route = params.channelRuntime.routing.resolveAgentRoute({
     cfg: params.cfg,
@@ -115,6 +130,10 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
     envelope: envelopeOptions,
     body: params.event.text
   });
+  const { mediaContext, tempMediaPaths } = await buildMediaContext(
+    params.event.attachments,
+    params.attachmentClient
+  );
   const ctxPayload = params.channelRuntime.reply.finalizeInboundContext({
     Body: body,
     BodyForAgent: params.event.text,
@@ -134,36 +153,37 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
     MessageSidFull: params.event.messageId,
     Timestamp: timestamp,
     OriginatingChannel: "rocketchat",
-    OriginatingTo: to
+    OriginatingTo: to,
+    ...mediaContext
   });
 
-  await params.channelRuntime.session.recordInboundSession({
-    storePath,
-    sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
-    ctx: ctxPayload,
-    updateLastRoute: {
-      sessionKey: route.mainSessionKey ?? route.sessionKey,
-      channel: "rocketchat",
-      to,
-      accountId: route.accountId ?? params.accountId
-    },
-    onRecordError: params.onRecordError
-  });
-
-  await params.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
-    ctx: ctxPayload,
-    cfg: params.cfg,
-    dispatcherOptions: {
-      deliver: async (payload, info) => {
-        if (info.kind !== "final") {
-          return;
-        }
-
-        await params.deliver(normalizeOutboundReplyPayload(payload));
+  try {
+    await params.channelRuntime.session.recordInboundSession({
+      storePath,
+      sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
+      ctx: ctxPayload,
+      updateLastRoute: {
+        sessionKey: route.mainSessionKey ?? route.sessionKey,
+        channel: "rocketchat",
+        to,
+        accountId: route.accountId ?? params.accountId
       },
-      onError: params.onDispatchError
-    }
-  });
+      onRecordError: params.onRecordError
+    });
+
+    await params.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
+      ctx: ctxPayload,
+      cfg: params.cfg,
+      dispatcherOptions: {
+        deliver: async (payload, info) => {
+          await params.deliver(normalizeOutboundReplyPayload(payload), info);
+        },
+        onError: params.onDispatchError
+      }
+    });
+  } finally {
+    await cleanupTempMediaPaths(tempMediaPaths);
+  }
 }
 
 function normalizeOutboundReplyPayload(payload: unknown): OutboundReplyPayload {
@@ -176,11 +196,15 @@ function normalizeOutboundReplyPayload(payload: unknown): OutboundReplyPayload {
     ? record.mediaUrls.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     : undefined;
 
+  const text = typeof record.text === "string" ? record.text : undefined;
+  const mediaUrl = typeof record.mediaUrl === "string" ? record.mediaUrl : undefined;
+  const replyToId = typeof record.replyToId === "string" ? record.replyToId : undefined;
+
   return {
-    text: typeof record.text === "string" ? record.text : undefined,
-    mediaUrl: typeof record.mediaUrl === "string" ? record.mediaUrl : undefined,
-    mediaUrls,
-    replyToId: typeof record.replyToId === "string" ? record.replyToId : undefined
+    ...(text ? { text } : {}),
+    ...(mediaUrl ? { mediaUrl } : {}),
+    ...(mediaUrls && mediaUrls.length > 0 ? { mediaUrls } : {}),
+    ...(replyToId ? { replyToId } : {})
   };
 }
 
@@ -203,4 +227,76 @@ function buildRecipientAddress(event: InboundEvent): string {
 function toEpochMs(value: string): number | undefined {
   const timestamp = Date.parse(value);
   return Number.isNaN(timestamp) ? undefined : timestamp;
+}
+
+async function buildMediaContext(
+  attachments: InboundAttachment[],
+  attachmentClient: AttachmentDownloadClientLike | undefined
+): Promise<{
+  mediaContext: Record<string, unknown>;
+  tempMediaPaths: string[];
+}> {
+  const mediaUrls: string[] = [];
+  const mediaPaths: string[] = [];
+  const mediaTypes: string[] = [];
+
+  for (const attachment of attachments) {
+    const mimeType = attachment.mimeType?.trim();
+
+    if (shouldMaterializeAttachment(attachment) && attachment.url && attachmentClient) {
+      try {
+        const filePath = await attachmentClient.downloadAttachmentToTempFile(attachment.url, {
+          fileName: attachment.fileName
+        });
+        mediaPaths.push(filePath);
+        if (mimeType) {
+          mediaTypes.push(mimeType);
+        }
+        continue;
+      } catch {
+        continue;
+      }
+    }
+
+    if (attachment.url) {
+      mediaUrls.push(attachment.url);
+      if (mimeType) {
+        mediaTypes.push(mimeType);
+      }
+    }
+  }
+
+  return {
+    mediaContext: {
+      ...(mediaUrls.length > 0
+        ? {
+            MediaUrl: mediaUrls[0],
+            MediaUrls: mediaUrls
+          }
+        : {}),
+      ...(mediaPaths.length > 0
+        ? {
+            MediaPath: mediaPaths[0],
+            MediaPaths: mediaPaths
+          }
+        : {}),
+      ...(mediaTypes.length > 0
+        ? {
+            MediaType: mediaTypes[0],
+            MediaTypes: mediaTypes
+          }
+        : {})
+    },
+    tempMediaPaths: mediaPaths
+  };
+}
+
+function shouldMaterializeAttachment(attachment: InboundAttachment): boolean {
+  return attachment.source === "rocketchat-file";
+}
+
+async function cleanupTempMediaPaths(paths: string[]): Promise<void> {
+  for (const path of paths) {
+    await rm(path, { force: true });
+  }
 }

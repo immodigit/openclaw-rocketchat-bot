@@ -13,6 +13,7 @@ describe("shouldHandleInboundEvent", () => {
     senderName: "alice",
     text: "hello",
     mentions: [],
+    attachments: [],
     sentAt: "2026-03-26T11:00:00.000Z",
     raw: {}
   };
@@ -89,7 +90,7 @@ describe("shouldHandleInboundEvent", () => {
 });
 
 describe("sendReplyLifecycle", () => {
-  it("posts a placeholder and updates it with the final text", async () => {
+  it("posts one placeholder and updates the same message for tool, block, and final output", async () => {
     const client = {
       postMessage: vi.fn().mockResolvedValue("placeholder-1"),
       updateMessage: vi.fn().mockResolvedValue(undefined)
@@ -98,14 +99,64 @@ describe("sendReplyLifecycle", () => {
     await sendReplyLifecycle({
       client,
       roomId: "room-1",
-      finalText: "```ts\nconst value = 1;\n```"
+      run: async (session) => {
+        await session.update({ kind: "tool", payload: {} });
+        await session.update({ kind: "block", payload: { text: "正在整理结果" } });
+        await session.update({ kind: "final", payload: { text: "最终答案" } });
+      }
     });
 
+    expect(client.postMessage).toHaveBeenCalledTimes(1);
     expect(client.postMessage).toHaveBeenCalledWith("room-1", "思考中...");
-    expect(client.updateMessage).toHaveBeenCalledWith(
+    expect(client.updateMessage).toHaveBeenNthCalledWith(
+      1,
       "room-1",
       "placeholder-1",
-      "```ts\nconst value = 1;\n```"
+      "正在调用工具..."
+    );
+    expect(client.updateMessage).toHaveBeenNthCalledWith(
+      2,
+      "room-1",
+      "placeholder-1",
+      "正在整理结果"
+    );
+    expect(client.updateMessage).toHaveBeenNthCalledWith(
+      3,
+      "room-1",
+      "placeholder-1",
+      "最终答案"
+    );
+  });
+
+  it("replaces the placeholder with an error note when execution fails after creation", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await expect(
+      sendReplyLifecycle({
+        client,
+        roomId: "room-1",
+        run: async (session) => {
+          await session.update({ kind: "tool", payload: {} });
+          throw new Error("boom");
+        }
+      })
+    ).rejects.toThrow("boom");
+
+    expect(client.postMessage).toHaveBeenCalledTimes(1);
+    expect(client.updateMessage).toHaveBeenNthCalledWith(
+      1,
+      "room-1",
+      "placeholder-1",
+      "正在调用工具..."
+    );
+    expect(client.updateMessage).toHaveBeenNthCalledWith(
+      2,
+      "room-1",
+      "placeholder-1",
+      "处理失败，请稍后重试。"
     );
   });
 });

@@ -1,4 +1,4 @@
-import { formatFinalReply, THINKING_PLACEHOLDER } from "./format.js";
+import { formatReplyFailure, formatReplyUpdate, THINKING_PLACEHOLDER } from "./format.js";
 import type { InboundEvent } from "./inbound/types.js";
 
 type ChannelRuleOptions = {
@@ -14,7 +14,29 @@ type ReplyClient = {
 type SendReplyLifecycleOptions = {
   client: ReplyClient;
   roomId: string;
-  finalText: string;
+} & (
+  | {
+      finalText: string;
+      run?: never;
+    }
+  | {
+      finalText?: never;
+      run(session: ReplySession): Promise<void>;
+    }
+);
+
+type ReplyStageKind = "tool" | "block" | "final";
+
+type ReplyStagePayload = {
+  text?: string;
+  mediaUrl?: string;
+  mediaUrls?: string[];
+};
+
+type ReplySession = {
+  messageId: string;
+  update(params: { kind: ReplyStageKind; payload: ReplyStagePayload }): Promise<void>;
+  fail(error: unknown): Promise<void>;
 };
 
 export function shouldHandleInboundEvent(
@@ -42,15 +64,41 @@ export function shouldHandleInboundEvent(
 export async function sendReplyLifecycle(
   options: SendReplyLifecycleOptions
 ): Promise<string> {
-  const placeholderId = await options.client.postMessage(options.roomId, THINKING_PLACEHOLDER);
-  await options.client.updateMessage(
-    options.roomId,
-    placeholderId,
-    formatFinalReply(options.finalText)
-  );
-  return placeholderId;
+  const session = await createReplySession(options.client, options.roomId);
+
+  try {
+    if (typeof options.run === "function") {
+      await options.run(session);
+    } else {
+      await session.update({
+        kind: "final",
+        payload: {
+          text: options.finalText
+        }
+      });
+    }
+  } catch (error) {
+    await session.fail(error);
+    throw error;
+  }
+
+  return session.messageId;
 }
 
 function normalizeMention(value: string): string {
   return value.trim().replace(/^@+/, "").toLowerCase();
+}
+
+async function createReplySession(client: ReplyClient, roomId: string): Promise<ReplySession> {
+  const messageId = await client.postMessage(roomId, THINKING_PLACEHOLDER);
+
+  return {
+    messageId,
+    update: async ({ kind, payload }) => {
+      await client.updateMessage(roomId, messageId, formatReplyUpdate(kind, payload));
+    },
+    fail: async (_error) => {
+      await client.updateMessage(roomId, messageId, formatReplyFailure());
+    }
+  };
 }

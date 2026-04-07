@@ -7,6 +7,9 @@ const stop = vi.fn();
 const websocketStart = vi.fn();
 const websocketStop = vi.fn();
 const createWebSocketTransport = vi.fn();
+let pollingTransportOptions: {
+  onEvent?: (event: unknown) => Promise<void>;
+} | null = null;
 
 vi.mock("../src/client.js", () => ({
   RocketChatClient: vi.fn().mockImplementation(() => ({
@@ -24,11 +27,14 @@ vi.mock("../src/channel.js", () => ({
 }));
 
 vi.mock("../src/inbound/polling.js", () => ({
-  RestPollingTransport: vi.fn().mockImplementation(() => ({
-    safePollOnce,
-    start,
-    stop
-  }))
+  RestPollingTransport: vi.fn().mockImplementation((options) => {
+    pollingTransportOptions = options;
+    return {
+      safePollOnce,
+      start,
+      stop
+    };
+  })
 }));
 
 vi.mock("../src/inbound/websocket.js", () => ({
@@ -47,6 +53,7 @@ vi.mock("../src/inbound/websocket.js", () => ({
 afterEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
+  pollingTransportOptions = null;
 });
 
 describe("rocketchatPlugin.gateway.startAccount", () => {
@@ -154,5 +161,77 @@ describe("rocketchatPlugin.gateway.startAccount", () => {
     await startPromise;
 
     expect(websocketStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards attachments into the legacy runtime callback payload", async () => {
+    initialize.mockResolvedValue({
+      userId: "bot-user",
+      authToken: "token",
+      username: "ai",
+      displayName: "AI"
+    });
+    safePollOnce.mockResolvedValue(undefined);
+    start.mockResolvedValue(undefined);
+    stop.mockResolvedValue(undefined);
+    const handleInboundMessage = vi.fn().mockResolvedValue(undefined);
+
+    const { rocketchatPlugin } = await import("../src/plugin.js");
+
+    await rocketchatPlugin.gateway.startAccount({
+      accountId: "main",
+      account: {
+        accountId: "main",
+        enabled: true,
+        serverUrl: "http://chat.example.com",
+        auth: {
+          mode: "token",
+          userId: "bot-user",
+          accessToken: "token"
+        },
+        transport: {
+          mode: "polling",
+          pollIntervalMs: 15_000
+        },
+        mentionNames: []
+      },
+      runtime: {
+        channel: {
+          reply: {
+            handleInboundMessage
+          }
+        }
+      }
+    });
+
+    await pollingTransportOptions?.onEvent?.({
+      accountId: "main",
+      roomId: "room-1",
+      roomType: "direct",
+      messageId: "m-1",
+      senderId: "user-1",
+      senderName: "Alice",
+      text: "请看附件",
+      mentions: [],
+      attachments: [
+        {
+          kind: "document",
+          mimeType: "application/pdf",
+          fileName: "report.pdf",
+          url: "https://chat.example.com/public/report.pdf",
+          source: "rocketchat-attachment",
+          raw: {}
+        }
+      ],
+      sentAt: "2026-03-26T10:01:00.000Z",
+      raw: {}
+    });
+
+    expect(handleInboundMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "rocketchat",
+        accountId: "main",
+        attachments: [expect.objectContaining({ kind: "document" })]
+      })
+    );
   });
 });

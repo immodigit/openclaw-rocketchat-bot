@@ -102,8 +102,87 @@ describe("createWebSocketTransport", () => {
       messageId: "m-1",
       roomId: "room-1",
       senderId: "user-1",
-      mentions: ["ai"]
+      mentions: ["ai"],
+      attachments: []
     });
+  });
+
+  it("maps websocket file metadata into inbound attachments", async () => {
+    const events: InboundEvent[] = [];
+    const socket = new FakeWebSocket();
+    const client = {
+      listSubscriptions: vi.fn().mockResolvedValue([{ rid: "room-9", t: "c" }])
+    };
+    const checkpointStore = createCheckpointStore();
+
+    const transport = createWebSocketTransport({
+      accountId: "main",
+      botUserId: "bot-user",
+      serverUrl: "https://chat.example.com",
+      userId: "bot-user",
+      authToken: "resume-token",
+      client,
+      checkpointStore,
+      onEvent: async (event) => {
+        events.push(event);
+      },
+      websocketFactory: () => socket
+    });
+
+    const startPromise = transport.start();
+
+    socket.emitOpen();
+    socket.emitMessage({ msg: "connected", session: "session-1" });
+    socket.emitMessage({
+      msg: "result",
+      id: "login",
+      result: {
+        id: "bot-user",
+        token: "resume-token",
+        type: "resume"
+      }
+    });
+
+    await startPromise;
+
+    socket.emitMessage({
+      msg: "changed",
+      collection: "stream-room-messages",
+      fields: {
+        eventName: "room-9",
+        args: [
+          {
+            _id: "m-file",
+            rid: "room-9",
+            msg: "watch this",
+            ts: "2026-03-26T08:41:00.000Z",
+            u: {
+              _id: "user-2",
+              username: "bob",
+              name: "Bob"
+            },
+            mentions: [],
+            file: {
+              _id: "file-1",
+              name: "demo.mp4",
+              url: "https://chat.example.com/file-upload/demo.mp4",
+              mimetype: "video/mp4"
+            }
+          }
+        ]
+      }
+    });
+
+    await flushAsync();
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attachments).toEqual([
+      expect.objectContaining({
+        kind: "video",
+        fileName: "demo.mp4",
+        url: "https://chat.example.com/file-upload/demo.mp4"
+      })
+    ]);
   });
 
   it("refreshes room subscriptions when the user room list changes", async () => {

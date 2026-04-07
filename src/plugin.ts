@@ -5,6 +5,7 @@ import { FileCheckpointStore } from "./checkpoints.js";
 import { sendReplyLifecycle, shouldHandleInboundEvent } from "./channel.js";
 import { RocketChatClient } from "./client.js";
 import { parsePluginConfig, type PluginAccountConfig } from "./config.js";
+import type { InboundAttachment } from "./inbound/attachments.js";
 import { RestPollingTransport } from "./inbound/polling.js";
 import type { InboundTransport } from "./inbound/types.js";
 import { createWebSocketTransport } from "./inbound/websocket.js";
@@ -42,6 +43,7 @@ type RuntimeReplyHandler = {
     text: string;
     raw: unknown;
     mentions: string[];
+    attachments: InboundAttachment[];
     reply: (responseText: string) => Promise<void>;
   }) => Promise<void>;
 };
@@ -131,36 +133,38 @@ export const rocketchatPlugin = {
           }
 
           if (ctx.channelRuntime) {
-            await dispatchInboundEventWithChannelRuntime({
-              cfg: (ctx.cfg ?? {}) as OpenClawConfigLike,
-              accountId: account.accountId,
-              event,
-              channelRuntime: ctx.channelRuntime,
-              deliver: async (payload) => {
-                const finalText = formatOutboundPayload(payload);
-                if (!finalText) {
-                  return;
-                }
-
-                await sendReplyLifecycle({
-                  client,
-                  roomId: event.roomId,
-                  finalText
+            const channelRuntime = ctx.channelRuntime;
+            await sendReplyLifecycle({
+              client,
+              roomId: event.roomId,
+              run: async (session) => {
+                await dispatchInboundEventWithChannelRuntime({
+                  cfg: (ctx.cfg ?? {}) as OpenClawConfigLike,
+                  accountId: account.accountId,
+                  event,
+                  channelRuntime,
+                  attachmentClient: client,
+                  deliver: async (payload, info) => {
+                    await session.update({
+                      kind: info.kind,
+                      payload
+                    });
+                  },
+                  onRecordError: (error) => {
+                    console.warn(
+                      `[rocketchat:${account.accountId}] failed to record inbound session: ${
+                        error instanceof Error ? error.message : String(error)
+                      }`
+                    );
+                  },
+                  onDispatchError: (error, info) => {
+                    console.warn(
+                      `[rocketchat:${account.accountId}] ${info.kind} dispatch failed: ${
+                        error instanceof Error ? error.message : String(error)
+                      }`
+                    );
+                  }
                 });
-              },
-              onRecordError: (error) => {
-                console.warn(
-                  `[rocketchat:${account.accountId}] failed to record inbound session: ${
-                    error instanceof Error ? error.message : String(error)
-                  }`
-                );
-              },
-              onDispatchError: (error, info) => {
-                console.warn(
-                  `[rocketchat:${account.accountId}] ${info.kind} dispatch failed: ${
-                    error instanceof Error ? error.message : String(error)
-                  }`
-                );
               }
             });
             return;
@@ -187,6 +191,7 @@ export const rocketchatPlugin = {
             text: event.text,
             raw: event.raw,
             mentions: event.mentions,
+            attachments: event.attachments,
             reply: async (responseText: string) => {
               await sendReplyLifecycle({
                 client,

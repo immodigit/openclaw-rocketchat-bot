@@ -1,4 +1,5 @@
 import type { RocketChatMessageRecord, RocketChatSubscriptionRecord } from "../client.js";
+import { normalizeInboundAttachments } from "./attachments.js";
 import type { InboundEvent, InboundTransport } from "./types.js";
 
 type CheckpointStoreLike = {
@@ -326,9 +327,18 @@ function toInboundEvent(
     mentions: (message.mentions ?? [])
       .map((mention) => mention.username ?? mention.name ?? "")
       .filter((mention): mention is string => Boolean(mention)),
+    attachments: normalizeInboundAttachments(getAttachmentInputs(message)),
     sentAt: message.ts ?? message._updatedAt ?? new Date(0).toISOString(),
     raw: message
   };
+}
+
+function getAttachmentInputs(message: RocketChatMessageRecord): unknown[] {
+  return [
+    ...(message.attachments ?? []),
+    ...(message.file ? [message.file] : []),
+    ...(message.files ?? [])
+  ];
 }
 
 function mapRoomType(type: string | undefined): InboundEvent["roomType"] {

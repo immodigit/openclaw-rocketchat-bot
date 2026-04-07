@@ -1,3 +1,5 @@
+import type { InboundAttachment } from "./attachments.js";
+
 export type InboundEvent = {
   accountId: string;
   roomId: string;
@@ -7,6 +9,7 @@ export type InboundEvent = {
   senderName: string;
   text: string;
   mentions: string[];
+  attachments: InboundAttachment[];
   sentAt: string;
   raw: unknown;
 };

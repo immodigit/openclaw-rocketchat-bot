@@ -1,3 +1,7 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import type { PluginAccountConfig } from "./config.js";
 
 export type RocketChatIdentity = {
@@ -12,6 +16,33 @@ export type RocketChatSubscriptionRecord = {
   t?: string;
   _updatedAt?: string;
   updatedAt?: string;
+};
+
+export type RocketChatAttachmentRecord = {
+  title?: string;
+  title_link?: string;
+  description?: string;
+  image_url?: string;
+  video_url?: string;
+  audio_url?: string;
+  type?: string;
+  mimeType?: string;
+  mimetype?: string;
+  contentType?: string;
+  name?: string;
+  filename?: string;
+  size?: number;
+};
+
+export type RocketChatFileRecord = {
+  _id?: string;
+  name?: string;
+  type?: string;
+  mimeType?: string;
+  mimetype?: string;
+  size?: number;
+  url?: string;
+  title_link?: string;
 };
 
 export type RocketChatMessageRecord = {
@@ -30,6 +61,9 @@ export type RocketChatMessageRecord = {
     username?: string;
     name?: string;
   }>;
+  attachments?: RocketChatAttachmentRecord[];
+  file?: RocketChatFileRecord;
+  files?: RocketChatFileRecord[];
 };
 
 type RocketChatClientOptions = {
@@ -137,6 +171,32 @@ export class RocketChatClient {
         text
       })
     });
+  }
+
+  async downloadAttachmentToTempFile(
+    url: string,
+    options?: { fileName?: string }
+  ): Promise<string> {
+    await this.initialize();
+
+    const response = await this.fetchImpl(url, {
+      method: "GET",
+      headers: {
+        Accept: "*/*",
+        ...this.authHeaders()
+      }
+    });
+
+    if (!response.ok) {
+      throw new RocketChatClientError(`Rocket.Chat attachment download failed: ${response.statusText}`);
+    }
+
+    const tempDir = await mkdtemp(join(tmpdir(), "rocketchat-attachment-"));
+    const filePath = join(tempDir, resolveAttachmentFileName(url, options?.fileName));
+    const bytes = Buffer.from(await response.arrayBuffer());
+    await writeFile(filePath, bytes);
+
+    return filePath;
   }
 
   private async loginWithPassword(): Promise<RocketChatIdentity> {
@@ -294,4 +354,27 @@ function getRetryAfterMs(response: Response, payload: JsonObject): number {
   }
 
   return 30_000;
+}
+
+function resolveAttachmentFileName(url: string, fileName: string | undefined): string {
+  const preferredName = fileName?.trim();
+  if (preferredName) {
+    return sanitizeFileName(preferredName);
+  }
+
+  try {
+    const pathName = new URL(url).pathname;
+    const candidate = pathName.split("/").filter(Boolean).at(-1);
+    if (candidate) {
+      return sanitizeFileName(decodeURIComponent(candidate));
+    }
+  } catch {
+    return "attachment";
+  }
+
+  return "attachment";
+}
+
+function sanitizeFileName(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "-") || "attachment";
 }

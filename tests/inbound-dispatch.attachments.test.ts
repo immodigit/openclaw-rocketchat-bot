@@ -1,4 +1,4 @@
-import { access, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -55,23 +55,27 @@ describe("dispatchInboundEventWithChannelRuntime attachments", () => {
       downloadAttachmentToTempFile: vi.fn().mockResolvedValue(tempPath)
     });
 
-    await harness.dispatch();
+    try {
+      await harness.dispatch();
 
-    expect(harness.downloadAttachmentToTempFile).toHaveBeenCalledWith(
-      "https://chat.example.com/file-upload/clip.mp4",
-      {
-        fileName: "clip.mp4"
-      }
-    );
-    expect(harness.finalizeInboundContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        MediaPath: tempPath,
-        MediaPaths: [tempPath],
-        MediaType: "video/mp4",
-        MediaTypes: ["video/mp4"]
-      })
-    );
-    await expect(access(tempPath)).rejects.toThrow();
+      expect(harness.downloadAttachmentToTempFile).toHaveBeenCalledWith(
+        "https://chat.example.com/file-upload/clip.mp4",
+        {
+          fileName: "clip.mp4"
+        }
+      );
+      expect(harness.finalizeInboundContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          MediaPath: tempPath,
+          MediaPaths: [tempPath],
+          MediaType: "video/mp4",
+          MediaTypes: ["video/mp4"]
+        })
+      );
+      await expect(access(tempPath)).resolves.toBeUndefined();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("logs attachment routing details for observable debugging", async () => {

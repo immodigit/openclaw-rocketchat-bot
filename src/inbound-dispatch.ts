@@ -1,5 +1,3 @@
-import { rm } from "node:fs/promises";
-
 import type { InboundAttachment } from "./inbound/attachments.js";
 import type { InboundEvent } from "./inbound/types.js";
 
@@ -135,7 +133,7 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
     envelope: envelopeOptions,
     body: params.event.text
   });
-  const { mediaContext, tempMediaPaths } = await buildMediaContext(
+  const mediaContext = await buildMediaContext(
     params.event.attachments,
     params.attachmentClient,
     logContext
@@ -163,33 +161,29 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
     ...mediaContext
   });
 
-  try {
-    await params.channelRuntime.session.recordInboundSession({
-      storePath,
-      sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
-      ctx: ctxPayload,
-      updateLastRoute: {
-        sessionKey: route.mainSessionKey ?? route.sessionKey,
-        channel: "rocketchat",
-        to,
-        accountId: route.accountId ?? params.accountId
-      },
-      onRecordError: params.onRecordError
-    });
+  await params.channelRuntime.session.recordInboundSession({
+    storePath,
+    sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
+    ctx: ctxPayload,
+    updateLastRoute: {
+      sessionKey: route.mainSessionKey ?? route.sessionKey,
+      channel: "rocketchat",
+      to,
+      accountId: route.accountId ?? params.accountId
+    },
+    onRecordError: params.onRecordError
+  });
 
-    await params.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
-      ctx: ctxPayload,
-      cfg: params.cfg,
-      dispatcherOptions: {
-        deliver: async (payload, info) => {
-          await params.deliver(normalizeOutboundReplyPayload(payload), info);
-        },
-        onError: params.onDispatchError
-      }
-    });
-  } finally {
-    await cleanupTempMediaPaths(tempMediaPaths, logContext);
-  }
+  await params.channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
+    ctx: ctxPayload,
+    cfg: params.cfg,
+    dispatcherOptions: {
+      deliver: async (payload, info) => {
+        await params.deliver(normalizeOutboundReplyPayload(payload), info);
+      },
+      onError: params.onDispatchError
+    }
+  });
 }
 
 function normalizeOutboundReplyPayload(payload: unknown): OutboundReplyPayload {
@@ -239,10 +233,7 @@ async function buildMediaContext(
   attachments: InboundAttachment[],
   attachmentClient: AttachmentDownloadClientLike | undefined,
   logContext: AttachmentLogContext
-): Promise<{
-  mediaContext: Record<string, unknown>;
-  tempMediaPaths: string[];
-}> {
+): Promise<Record<string, unknown>> {
   const mediaUrls: string[] = [];
   const mediaPaths: string[] = [];
   const mediaTypes: string[] = [];
@@ -315,49 +306,29 @@ async function buildMediaContext(
   }
 
   return {
-    mediaContext: {
-      ...(mediaUrls.length > 0
-        ? {
-            MediaUrl: mediaUrls[0],
-            MediaUrls: mediaUrls
-          }
-        : {}),
-      ...(mediaPaths.length > 0
-        ? {
-            MediaPath: mediaPaths[0],
-            MediaPaths: mediaPaths
-          }
-        : {}),
-      ...(mediaTypes.length > 0
-        ? {
-            MediaType: mediaTypes[0],
-            MediaTypes: mediaTypes
-          }
-        : {})
-    },
-    tempMediaPaths: mediaPaths
+    ...(mediaUrls.length > 0
+      ? {
+          MediaUrl: mediaUrls[0],
+          MediaUrls: mediaUrls
+        }
+      : {}),
+    ...(mediaPaths.length > 0
+      ? {
+          MediaPath: mediaPaths[0],
+          MediaPaths: mediaPaths
+        }
+      : {}),
+    ...(mediaTypes.length > 0
+      ? {
+          MediaType: mediaTypes[0],
+          MediaTypes: mediaTypes
+        }
+      : {})
   };
 }
 
 function shouldMaterializeAttachment(attachment: InboundAttachment): boolean {
   return attachment.source === "rocketchat-file";
-}
-
-async function cleanupTempMediaPaths(
-  paths: string[],
-  logContext: AttachmentLogContext
-): Promise<void> {
-  for (const path of paths) {
-    try {
-      await rm(path, { force: true });
-    } catch (error) {
-      logAttachmentWarn(logContext, {
-        type: "attachment-cleanup-failed",
-        path,
-        error: describeError(error)
-      });
-    }
-  }
 }
 
 type AttachmentLogContext = {

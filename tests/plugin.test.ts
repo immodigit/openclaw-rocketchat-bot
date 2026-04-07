@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { attachmentMediaDir, checkpointPathForAccount } from "../src/plugin.js";
+import { attachmentMediaDir, checkpointPathForAccount, rocketchatPlugin } from "../src/plugin.js";
 
 describe("checkpointPathForAccount", () => {
   it("uses OPENCLAW_HOME when provided", () => {
@@ -67,5 +67,60 @@ describe("attachmentMediaDir", () => {
         homedir: () => "/Users/tester"
       })
     ).toBe("/Users/tester/.openclaw/media");
+  });
+});
+
+describe("rocketchatPlugin.config", () => {
+  it("returns an empty account list when the root config has no Rocket.Chat section", () => {
+    const rootConfig = {
+      meta: {
+        envFilePath: "/home/tester/.openclaw/.env"
+      },
+      channels: {}
+    } as unknown as Parameters<typeof rocketchatPlugin.config.listAccountIds>[0];
+
+    expect(
+      rocketchatPlugin.config.listAccountIds(rootConfig)
+    ).toEqual([]);
+  });
+
+  it("reads account ids from channels.rocketchat when the full OpenClaw config is provided", () => {
+    const rootConfig = {
+      meta: {
+        envFilePath: "/home/tester/.openclaw/.env"
+      },
+      channels: {
+        rocketchat: {
+          accounts: {
+            main: {
+              enabled: true,
+              serverUrl: "https://chat.example.com",
+              auth: {
+                mode: "token",
+                userId: "user-1",
+                accessToken: "token-1"
+              }
+            }
+          }
+        }
+      }
+    } as unknown as Parameters<typeof rocketchatPlugin.config.listAccountIds>[0];
+
+    expect(
+      rocketchatPlugin.config.listAccountIds(rootConfig)
+    ).toEqual(["main"]);
+  });
+
+  it("returns null when resolving an account from a root config without Rocket.Chat settings", () => {
+    const rootConfig = {
+      meta: {
+        envFilePath: "/home/tester/.openclaw/.env"
+      },
+      channels: {}
+    } as unknown as Parameters<typeof rocketchatPlugin.config.resolveAccount>[0];
+
+    expect(
+      rocketchatPlugin.config.resolveAccount(rootConfig, "main")
+    ).toBeNull();
   });
 });

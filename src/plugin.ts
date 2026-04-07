@@ -256,8 +256,18 @@ export function registerRockeChatPlugin(api: PluginApi): void {
 }
 
 function parseChannelConfig(cfg: OpenClawConfig): ReturnType<typeof parsePluginConfig> {
-  const input = cfg.channels?.rocketchat ?? cfg;
-  return parsePluginConfig(input);
+  const nestedConfig = cfg.channels?.rocketchat;
+  if (nestedConfig) {
+    return parsePluginConfig(nestedConfig);
+  }
+
+  if (isPluginConfigLike(cfg)) {
+    return parsePluginConfig(cfg);
+  }
+
+  return {
+    accounts: {}
+  };
 }
 
 export function checkpointPathForAccount(
@@ -411,4 +421,8 @@ function createDeferred<T>() {
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function isPluginConfigLike(input: unknown): input is Parameters<typeof parsePluginConfig>[0] {
+  return Boolean(input && typeof input === "object" && "accounts" in input);
 }

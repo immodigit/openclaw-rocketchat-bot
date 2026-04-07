@@ -203,6 +203,21 @@ npm run debug:poll
 
 `debug:poll` 会打印每条标准化后的入站事件，以及本次轮询结束后的 checkpoint。
 
+### 3. 观察运行时附件日志
+
+当入站消息包含附件时，插件会输出带 `[rocketchat:<accountId>]` 前缀的结构化日志，重点关注：
+
+- `attachment-summary`：本条消息识别到的附件列表
+- `attachment-materialized`：受保护附件已下载到本地可读目录
+- `attachment-download-failed`：受保护附件下载失败，附件会被跳过
+- `attachment-media-context`：最终写入 OpenClaw 上下文的 `MediaUrl` / `MediaPath` 统计
+
+如果服务器上是用 `git clone` 的本地插件目录联调，改完代码后记得执行：
+
+```bash
+openclaw gateway restart
+```
+
 ## 项目结构
 
 ```text

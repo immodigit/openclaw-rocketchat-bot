@@ -74,6 +74,51 @@ describe("dispatchInboundEventWithChannelRuntime attachments", () => {
     await expect(access(tempPath)).rejects.toThrow();
   });
 
+  it("logs attachment routing details for observable debugging", async () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const tempDir = await mkdtemp(join(tmpdir(), "rocketchat-dispatch-test-"));
+    const tempPath = join(tempDir, "report.pdf");
+    await writeFile(tempPath, "pdf");
+
+    const harness = createDispatchHarness({
+      attachments: [
+        {
+          kind: "document",
+          mimeType: "application/pdf",
+          fileName: "public-report.pdf",
+          url: "https://chat.example.com/public/report.pdf",
+          source: "rocketchat-attachment",
+          raw: {}
+        },
+        {
+          kind: "document",
+          mimeType: "application/pdf",
+          fileName: "private-report.pdf",
+          url: "https://chat.example.com/file-upload/private-report.pdf",
+          source: "rocketchat-file",
+          raw: {}
+        }
+      ],
+      downloadAttachmentToTempFile: vi.fn().mockResolvedValue(tempPath)
+    });
+
+    try {
+      await harness.dispatch();
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"type":"attachment-summary"')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"type":"attachment-materialized"')
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"type":"attachment-media-context"')
+      );
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
   it("does not block plain text dispatch when attachment download fails", async () => {
     const harness = createDispatchHarness({
       attachments: [
@@ -112,6 +157,33 @@ describe("dispatchInboundEventWithChannelRuntime attachments", () => {
     expect(harness.deliver).toHaveBeenCalledWith({
       text: "收到"
     }, { kind: "final" });
+  });
+
+  it("warns when protected attachment download fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const harness = createDispatchHarness({
+      attachments: [
+        {
+          kind: "video",
+          mimeType: "video/mp4",
+          fileName: "clip.mp4",
+          url: "https://chat.example.com/file-upload/clip.mp4",
+          source: "rocketchat-file",
+          raw: {}
+        }
+      ],
+      downloadAttachmentToTempFile: vi.fn().mockRejectedValue(new Error("download failed"))
+    });
+
+    try {
+      await harness.dispatch();
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('"type":"attachment-download-failed"')
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
 

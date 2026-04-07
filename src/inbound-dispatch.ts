@@ -103,6 +103,11 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
   onRecordError(err: unknown): void;
   onDispatchError(err: unknown, info: ReplyDeliverInfo): void;
 }): Promise<void> {
+  const logContext = {
+    accountId: params.accountId,
+    roomId: params.event.roomId,
+    messageId: params.event.messageId
+  };
   const route = params.channelRuntime.routing.resolveAgentRoute({
     cfg: params.cfg,
     channel: "rocketchat",
@@ -132,7 +137,8 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
   });
   const { mediaContext, tempMediaPaths } = await buildMediaContext(
     params.event.attachments,
-    params.attachmentClient
+    params.attachmentClient,
+    logContext
   );
   const ctxPayload = params.channelRuntime.reply.finalizeInboundContext({
     Body: body,
@@ -182,7 +188,7 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
       }
     });
   } finally {
-    await cleanupTempMediaPaths(tempMediaPaths);
+    await cleanupTempMediaPaths(tempMediaPaths, logContext);
   }
 }
 
@@ -231,7 +237,8 @@ function toEpochMs(value: string): number | undefined {
 
 async function buildMediaContext(
   attachments: InboundAttachment[],
-  attachmentClient: AttachmentDownloadClientLike | undefined
+  attachmentClient: AttachmentDownloadClientLike | undefined,
+  logContext: AttachmentLogContext
 ): Promise<{
   mediaContext: Record<string, unknown>;
   tempMediaPaths: string[];
@@ -239,6 +246,20 @@ async function buildMediaContext(
   const mediaUrls: string[] = [];
   const mediaPaths: string[] = [];
   const mediaTypes: string[] = [];
+
+  if (attachments.length > 0) {
+    logAttachmentInfo(logContext, {
+      type: "attachment-summary",
+      attachments: attachments.map((attachment, index) => ({
+        index,
+        source: attachment.source,
+        kind: attachment.kind,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        url: attachment.url
+      }))
+    });
+  }
 
   for (const attachment of attachments) {
     const mimeType = attachment.mimeType?.trim();
@@ -252,8 +273,26 @@ async function buildMediaContext(
         if (mimeType) {
           mediaTypes.push(mimeType);
         }
+        logAttachmentInfo(logContext, {
+          type: "attachment-materialized",
+          source: attachment.source,
+          kind: attachment.kind,
+          fileName: attachment.fileName,
+          mimeType,
+          url: attachment.url,
+          path: filePath
+        });
         continue;
-      } catch {
+      } catch (error) {
+        logAttachmentWarn(logContext, {
+          type: "attachment-download-failed",
+          source: attachment.source,
+          kind: attachment.kind,
+          fileName: attachment.fileName,
+          mimeType,
+          url: attachment.url,
+          error: describeError(error)
+        });
         continue;
       }
     }
@@ -264,6 +303,15 @@ async function buildMediaContext(
         mediaTypes.push(mimeType);
       }
     }
+  }
+
+  if (attachments.length > 0) {
+    logAttachmentInfo(logContext, {
+      type: "attachment-media-context",
+      mediaUrlCount: mediaUrls.length,
+      mediaPathCount: mediaPaths.length,
+      mediaTypes
+    });
   }
 
   return {
@@ -295,8 +343,54 @@ function shouldMaterializeAttachment(attachment: InboundAttachment): boolean {
   return attachment.source === "rocketchat-file";
 }
 
-async function cleanupTempMediaPaths(paths: string[]): Promise<void> {
+async function cleanupTempMediaPaths(
+  paths: string[],
+  logContext: AttachmentLogContext
+): Promise<void> {
   for (const path of paths) {
-    await rm(path, { force: true });
+    try {
+      await rm(path, { force: true });
+    } catch (error) {
+      logAttachmentWarn(logContext, {
+        type: "attachment-cleanup-failed",
+        path,
+        error: describeError(error)
+      });
+    }
   }
+}
+
+type AttachmentLogContext = {
+  accountId: string;
+  roomId: string;
+  messageId: string;
+};
+
+function logAttachmentInfo(
+  context: AttachmentLogContext,
+  payload: Record<string, unknown>
+): void {
+  console.info(formatAttachmentLog(context, payload));
+}
+
+function logAttachmentWarn(
+  context: AttachmentLogContext,
+  payload: Record<string, unknown>
+): void {
+  console.warn(formatAttachmentLog(context, payload));
+}
+
+function formatAttachmentLog(
+  context: AttachmentLogContext,
+  payload: Record<string, unknown>
+): string {
+  return `[rocketchat:${context.accountId}] ${JSON.stringify({
+    roomId: context.roomId,
+    messageId: context.messageId,
+    ...payload
+  })}`;
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

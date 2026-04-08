@@ -264,7 +264,7 @@ function normalizeOutboundReplyPayload(payload: unknown): OutboundReplyPayload {
     ? record.mediaUrls.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
     : undefined;
 
-  const text = typeof record.text === "string" ? record.text : undefined;
+  const text = resolveOutboundText(record);
   const mediaUrl = typeof record.mediaUrl === "string" ? record.mediaUrl : undefined;
   const replyToId = typeof record.replyToId === "string" ? record.replyToId : undefined;
 
@@ -274,6 +274,54 @@ function normalizeOutboundReplyPayload(payload: unknown): OutboundReplyPayload {
     ...(mediaUrls && mediaUrls.length > 0 ? { mediaUrls } : {}),
     ...(replyToId ? { replyToId } : {})
   };
+}
+
+function resolveOutboundText(record: Record<string, unknown>): string | undefined {
+  const directText = typeof record.text === "string" ? record.text : undefined;
+  if (directText?.trim()) {
+    return directText;
+  }
+
+  return resolveInteractiveTextFallback(record.interactive) ?? directText;
+}
+
+function resolveInteractiveTextFallback(interactive: unknown): string | undefined {
+  if (!interactive || typeof interactive !== "object" || Array.isArray(interactive)) {
+    return undefined;
+  }
+
+  const blocks = (interactive as { blocks?: unknown }).blocks;
+  if (!Array.isArray(blocks)) {
+    return undefined;
+  }
+
+  const textBlocks = blocks
+    .map((block) => normalizeInteractiveTextBlock(block))
+    .filter((value): value is string => typeof value === "string");
+
+  if (textBlocks.length === 0) {
+    return undefined;
+  }
+
+  return textBlocks.join("\n\n");
+}
+
+function normalizeInteractiveTextBlock(block: unknown): string | undefined {
+  if (!block || typeof block !== "object" || Array.isArray(block)) {
+    return undefined;
+  }
+
+  const record = block as Record<string, unknown>;
+  if (typeof record.type !== "string" || record.type.trim().toLowerCase() !== "text") {
+    return undefined;
+  }
+
+  if (typeof record.text !== "string") {
+    return undefined;
+  }
+
+  const text = record.text.trim();
+  return text.length > 0 ? text : undefined;
 }
 
 function buildConversationLabel(event: InboundEvent): string {

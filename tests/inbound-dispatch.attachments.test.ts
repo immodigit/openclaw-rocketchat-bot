@@ -78,8 +78,9 @@ describe("dispatchInboundEventWithChannelRuntime attachments", () => {
     }
   });
 
-  it("logs attachment routing details for observable debugging", async () => {
+  it("does not emit attachment routing debug logs on successful dispatch", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const tempDir = await mkdtemp(join(tmpdir(), "rocketchat-dispatch-test-"));
     const tempPath = join(tempDir, "report.pdf");
     await writeFile(tempPath, "pdf");
@@ -109,17 +110,11 @@ describe("dispatchInboundEventWithChannelRuntime attachments", () => {
     try {
       await harness.dispatch();
 
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"type":"attachment-summary"')
-      );
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"type":"attachment-materialized"')
-      );
-      expect(infoSpy).toHaveBeenCalledWith(
-        expect.stringContaining('"type":"attachment-media-context"')
-      );
+      expect(infoSpy).not.toHaveBeenCalled();
+      expect(warnSpy).not.toHaveBeenCalled();
     } finally {
       infoSpy.mockRestore();
+      warnSpy.mockRestore();
     }
   });
 

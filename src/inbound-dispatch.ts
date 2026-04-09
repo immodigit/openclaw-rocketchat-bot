@@ -198,12 +198,6 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
     })
   );
 
-  logAttachmentInfo(logContext, {
-    type: "reply-dispatch-result",
-    queuedFinal: dispatchResult.queuedFinal,
-    counts: dispatchResult.counts
-  });
-
   if (!hasAnyReplyDispatch(dispatchResult)) {
     logAttachmentWarn(logContext, {
       type: "reply-dispatch-empty",
@@ -354,20 +348,6 @@ async function buildMediaContext(
   const mediaPaths: string[] = [];
   const mediaTypes: string[] = [];
 
-  if (attachments.length > 0) {
-    logAttachmentInfo(logContext, {
-      type: "attachment-summary",
-      attachments: attachments.map((attachment, index) => ({
-        index,
-        source: attachment.source,
-        kind: attachment.kind,
-        fileName: attachment.fileName,
-        mimeType: attachment.mimeType,
-        url: attachment.url
-      }))
-    });
-  }
-
   for (const attachment of attachments) {
     const mimeType = attachment.mimeType?.trim();
 
@@ -380,15 +360,6 @@ async function buildMediaContext(
         if (mimeType) {
           mediaTypes.push(mimeType);
         }
-        logAttachmentInfo(logContext, {
-          type: "attachment-materialized",
-          source: attachment.source,
-          kind: attachment.kind,
-          fileName: attachment.fileName,
-          mimeType,
-          url: attachment.url,
-          path: filePath
-        });
         continue;
       } catch (error) {
         logAttachmentWarn(logContext, {
@@ -410,15 +381,6 @@ async function buildMediaContext(
         mediaTypes.push(mimeType);
       }
     }
-  }
-
-  if (attachments.length > 0) {
-    logAttachmentInfo(logContext, {
-      type: "attachment-media-context",
-      mediaUrlCount: mediaUrls.length,
-      mediaPathCount: mediaPaths.length,
-      mediaTypes
-    });
   }
 
   return {
@@ -452,13 +414,6 @@ type AttachmentLogContext = {
   roomId: string;
   messageId: string;
 };
-
-function logAttachmentInfo(
-  context: AttachmentLogContext,
-  payload: Record<string, unknown>
-): void {
-  console.info(formatAttachmentLog(context, payload));
-}
 
 function logAttachmentWarn(
   context: AttachmentLogContext,

@@ -248,7 +248,7 @@ describe("dispatchInboundEventWithChannelRuntime", () => {
     }, { kind: "final" });
   });
 
-  it("logs an empty dispatch result when the runtime completes without any replies", async () => {
+  it("only warns when the runtime completes without any replies", async () => {
     const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const resolveAgentRoute = vi.fn().mockReturnValue({
@@ -320,9 +320,7 @@ describe("dispatchInboundEventWithChannelRuntime", () => {
     });
 
     expect(deliver).not.toHaveBeenCalled();
-    expect(infoSpy).toHaveBeenCalledWith(
-      '[rocketchat:main] {"roomId":"room-1","messageId":"message-1","type":"reply-dispatch-result","queuedFinal":false,"counts":{"tool":0,"block":0,"final":0}}'
-    );
+    expect(infoSpy).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
       '[rocketchat:main] {"roomId":"room-1","messageId":"message-1","type":"reply-dispatch-empty","queuedFinal":false,"counts":{"tool":0,"block":0,"final":0}}'
     );

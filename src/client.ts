@@ -14,9 +14,17 @@ export type RocketChatIdentity = {
 
 export type RocketChatSubscriptionRecord = {
   rid: string;
+  name?: string;
+  fname?: string;
   t?: string;
   _updatedAt?: string;
   updatedAt?: string;
+};
+
+export type RoomInfo = {
+  id: string;
+  name: string;
+  type: "direct" | "group" | "channel";
 };
 
 export type RocketChatAttachmentRecord = {
@@ -130,6 +138,15 @@ export class RocketChatClient {
     });
 
     return Array.isArray(payload.update) ? payload.update : [];
+  }
+
+  async listRooms(): Promise<RoomInfo[]> {
+    const subscriptions = await this.listSubscriptions(null);
+    return subscriptions.map((sub) => ({
+      id: sub.rid,
+      name: sub.fname || sub.name || sub.rid,
+      type: mapSubscriptionType(sub.t)
+    }));
   }
 
   async syncMessages(
@@ -414,4 +431,16 @@ function sanitizeExtension(value: string): string {
   }
 
   return value.replace(/[^a-zA-Z0-9.]+/g, "");
+}
+
+function mapSubscriptionType(type: string | undefined): RoomInfo["type"] {
+  if (type === "d") {
+    return "direct";
+  }
+
+  if (type === "p") {
+    return "group";
+  }
+
+  return "channel";
 }

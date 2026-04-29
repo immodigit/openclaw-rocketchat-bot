@@ -1,6 +1,6 @@
 {
   "name": "@laevateinzzl/openclaw-rocketchat-bot",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "license": "MIT",
   "private": false,
   "description": "Rocket.Chat channel plugin for OpenClaw",
@@ -19,6 +19,7 @@
     "build": "tsc -p tsconfig.build.json",
     "debug:client": "npm run build --silent && node --enable-source-maps build/debug-client.js",
     "debug:poll": "npm run build --silent && node --enable-source-maps build/debug-poll.js",
+    "debug:rooms": "npm run build --silent && node --enable-source-maps build/debug-rooms.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

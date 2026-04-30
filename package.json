@@ -1,20 +1,20 @@
 {
   "name": "@laevateinzzl/openclaw-rocketchat-bot",
-  "version": "0.1.6",
-  "license": "MIT",
+  "version": "0.1.7",
   "private": false,
   "description": "Rocket.Chat channel plugin for OpenClaw",
-  "type": "module",
-  "main": "build/index.js",
-  "publishConfig": {
-    "access": "public"
-  },
+  "license": "MIT",
   "files": [
     "build",
     "src",
     "openclaw.plugin.json",
     "README.md"
   ],
+  "type": "module",
+  "main": "build/index.js",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "debug:client": "npm run build --silent && node --enable-source-maps build/debug-client.js",
@@ -22,6 +22,14 @@
     "debug:rooms": "npm run build --silent && node --enable-source-maps build/debug-rooms.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "openclaw": {
     "extensions": [
@@ -44,13 +52,5 @@
       "localPath": ".",
       "defaultChoice": "npm"
     }
-  },
-  "devDependencies": {
-    "@types/node": "^24.0.0",
-    "typescript": "^5.8.3",
-    "vitest": "^3.2.4"
-  },
-  "dependencies": {
-    "zod": "^3.24.2"
   }
 }

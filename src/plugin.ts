@@ -78,6 +78,9 @@ export const rocketchatPlugin = {
     isConfigured
   },
   id: "rocketchat",
+  gateway: {
+    startAccount: startGateway
+  },
   base: {
     id: "rocketchat",
     setup: {

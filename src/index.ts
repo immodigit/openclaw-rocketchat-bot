@@ -5,6 +5,16 @@ type GatewayApi = {
   registerChannel?(args: { plugin: unknown }): void;
 };
 
+export function register(api: GatewayApi) {
+  api.registerChannel?.({ plugin: rocketchatPlugin });
+}
+
+export function activate(api: GatewayApi) {
+  api.registerGatewayMethod("rocketchat.gateway.startAccount", (ctx) => {
+    return startGateway(ctx as Parameters<typeof startGateway>[0]);
+  });
+}
+
 export default {
   id: "rocketchat",
   name: "Rocket.Chat",
@@ -22,15 +32,9 @@ export default {
     }
   },
 
-  register(api: GatewayApi) {
-    api.registerChannel?.({ plugin: rocketchatPlugin });
-  },
+  register,
 
-  activate(api: GatewayApi) {
-    api.registerGatewayMethod("rocketchat.gateway.startAccount", (ctx) => {
-      return startGateway(ctx as Parameters<typeof startGateway>[0]);
-    });
-  },
+  activate,
 
   registerFull(api: GatewayApi) {
     api.registerGatewayMethod("rocketchat.gateway.startAccount", (ctx) => {

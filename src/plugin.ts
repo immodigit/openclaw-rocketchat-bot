@@ -230,12 +230,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
   await transport.start();
 
-  if (!ctx.abortSignal) {
-    return;
-  }
-
   try {
-    await Promise.race([waitForAbort(ctx.abortSignal), fatalError.promise]);
+    if (ctx.abortSignal) {
+      await Promise.race([waitForAbort(ctx.abortSignal), fatalError.promise]);
+      return;
+    }
+
+    await fatalError.promise;
   } finally {
     await transport.stop();
     ctx.setStatus?.("stopped");

@@ -32,7 +32,7 @@
     "vitest": "^3.2.4"
   },
   "openclaw": {
-    "hooks": [
+    "extensions": [
       "./src/index.ts"
     ],
     "channel": {

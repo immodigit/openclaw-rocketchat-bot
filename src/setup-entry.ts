@@ -1,3 +1,5 @@
 import { rocketchatPlugin } from "./plugin.js";
 
-export default rocketchatPlugin;
+export default {
+  plugin: rocketchatPlugin
+};

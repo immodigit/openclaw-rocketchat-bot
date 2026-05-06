@@ -1,9 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { ChannelPluginBaseConfig } from "openclaw/plugin-sdk/channel-core";
-import { createChannelPluginBase } from "openclaw/plugin-sdk/channel-core";
-
 import { FileCheckpointStore } from "./checkpoints.js";
 import { sendReplyLifecycle, shouldHandleInboundEvent } from "./channel.js";
 import { RocketChatClient } from "./client.js";
@@ -66,7 +63,8 @@ export function inspectAccount(
     : null;
 }
 
-export const rocketchatPlugin = createChannelPluginBase<ResolvedAccount>({
+export const rocketchatPlugin = {
+  id: "rocketchat",
   base: {
     id: "rocketchat",
     setup: {
@@ -76,7 +74,7 @@ export const rocketchatPlugin = createChannelPluginBase<ResolvedAccount>({
   },
   security: {
     dm: {
-      channelKey: "rocketchat",
+      channelKey: "rocketchat" as const,
       resolvePolicy() {
         return "allowlist";
       },
@@ -87,10 +85,10 @@ export const rocketchatPlugin = createChannelPluginBase<ResolvedAccount>({
     }
   },
   threading: {
-    topLevelReplyToMode: "reply"
+    topLevelReplyToMode: "reply" as const
   },
   outbound: {
-    deliveryMode: "direct",
+    deliveryMode: "direct" as const,
     attachedResults: {
       async sendText(params: {
         cfg?: unknown;
@@ -115,7 +113,7 @@ export const rocketchatPlugin = createChannelPluginBase<ResolvedAccount>({
       }
     }
   }
-});
+};
 
 export function listAccountIds(cfg: OpenClawConfig): string[] {
   return Object.keys(parseChannelConfig(cfg).accounts);

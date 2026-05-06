@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import plugin from "../src/index.js";
 
 describe("plugin entry", () => {
-  it("exports a channel plugin entry via defineChannelPluginEntry", () => {
+  it("exports a channel plugin entry object", () => {
     expect(plugin).toBeTruthy();
     expect(typeof plugin).toBe("object");
     expect(plugin.id).toBe("rocketchat");

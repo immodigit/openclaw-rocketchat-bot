@@ -12,6 +12,7 @@ Rocket.Chat channel plugin for OpenClaw.
 - 支持单聊
 - 支持群聊和频道，仅在明确 `@机器人` 时响应
 - 回复阶段先发送一次 `思考中...` 占位消息，并将 `tool` / `block` / `final` 可见输出持续更新到同一条消息
+- `final` 阶段支持单个本地附件发送：会先更新占位消息文本，再额外发送一条独立的附件消息
 - 入站附件支持图片、常见文档和主流视频格式
 - 公网可访问附件直接透传为上游 `MediaUrl` / `MediaUrls`
 - 需要 Rocket.Chat 鉴权的文件会临时下载为本地路径，再透传为 `MediaPath` / `MediaPaths`
@@ -21,7 +22,7 @@ Rocket.Chat channel plugin for OpenClaw.
 
 ## 当前限制
 
-- `capabilities.media` 仍保持 `false`，因为当前只支持入站附件入模，不支持 Rocket.Chat 出站媒体发送
+- `capabilities.media` 仍保持 `false`；当前只新增了 `final` 阶段的单个本地附件发送，还不等同于通用 Rocket.Chat 出站媒体能力
 - 不支持线程、反应、消息编辑/撤回同步
 - 不支持 OCR、PDF 渲染、视频转码、音频转写等重处理流程
 - 非图片/文档/视频的附件会被标记为 `unknown`，可能被上游忽略或仅保留元数据
@@ -125,6 +126,7 @@ openclaw gateway restart
 - `transport.mode: "polling"` 继续保留，适合作为兼容回退
 - legacy `handleInboundMessage(...)` 回调和 `channelRuntime` 路径都会收到标准化后的 `attachments`
 - 可见回复阶段现在会按 `tool` / `block` / `final` 逐步更新同一条 Rocket.Chat 消息；如果中途失败，占位消息会替换成错误提示
+- 如果 `final` payload 提供本地 `attachmentPath`，插件会在更新占位文本后，再发送一条独立的附件消息
 
 ## 附件支持说明
 
@@ -141,7 +143,28 @@ openclaw gateway restart
 - MIME 存在时优先按 MIME 分类；缺失时回退到文件扩展名
 - 传输层会统一标准化 `attachments`、`file`、`files` 三类 Rocket.Chat payload
 - 对 `file` 类附件，插件会优先视为需要鉴权的 Rocket.Chat 文件，并在 dispatch 完成后清理临时文件
+### 图片尺寸限制
+
+OpenClaw 默认的入站图片最大尺寸为 **1200px**（`agents.defaults.imageMaxDimensionPx`），超过此限制的图片会在 sanitization 阶段被静默丢弃，LLM 收不到图片数据。
+
+如果你的 Rocket.Chat 用户经常发送手机截图或高清照片，建议调高此限制：
+
+```yaml
+agents:
+  defaults:
+    imageMaxDimensionPx: 4096
+```
+
+也可以用 CLI 设置：
+
+```bash
+openclaw config set agents.defaults.imageMaxDimensionPx 4096
+openclaw gateway restart
+```
+
 - 大于 OpenClaw 默认 PDF 上限的文档，即使附件链路正常，也可能在上游 PDF 工具阶段失败；这时需要调高 `agents.defaults.pdfMaxBytesMb`
+- 出站附件当前只支持 `final` 阶段、单个本地文件路径；`tool` / `block` 阶段的 `attachmentPath` 会被忽略
+- Rocket.Chat 服务器会拒绝 0 字节文件；空文件测试时至少需要 1 字节内容
 
 ## 开发命令
 

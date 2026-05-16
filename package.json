@@ -2,7 +2,7 @@
   "name": "@immodigit/openclaw-rocketchat-bot",
   "version": "0.2.0",
   "private": false,
-  "description": "Rocket.Chat channel plugin for OpenClaw — fork with thread-anchored replies",
+  "description": "Rocket.Chat channel plugin for OpenClaw \u2014 fork with thread-anchored replies",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/immodigit/openclaw-rocketchat-bot.git"
@@ -13,7 +13,9 @@
     "dist",
     "src",
     "openclaw.plugin.json",
-    "README.md"
+    "README.md",
+    "tsconfig.json",
+    "tsconfig.build.json"
   ],
   "type": "module",
   "main": "dist/index.js",

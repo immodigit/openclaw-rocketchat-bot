@@ -62,6 +62,29 @@ const pluginConfigSchema = z
 export type PluginConfig = z.infer<typeof pluginConfigSchema>;
 export type PluginAccountConfig = PluginConfig["accounts"][string];
 
+/**
+ * Replace `${ENV_VAR}` placeholders with the matching `process.env` value
+ * anywhere inside the config tree. Strings without a placeholder pass
+ * through unchanged. Missing env vars become empty strings, which then
+ * trip zod's `min(1)` so the failure stays loud.
+ */
+function substituteEnvVars(value: unknown, env: NodeJS.ProcessEnv = process.env): unknown {
+  if (typeof value === "string") {
+    return value.replace(/\$\{([A-Z0-9_]+)\}/gi, (_match, name) => env[name] ?? "");
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => substituteEnvVars(item, env));
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = substituteEnvVars(v, env);
+    }
+    return out;
+  }
+  return value;
+}
+
 export function parsePluginConfig(input: unknown): PluginConfig {
-  return pluginConfigSchema.parse(input);
+  return pluginConfigSchema.parse(substituteEnvVars(input));
 }

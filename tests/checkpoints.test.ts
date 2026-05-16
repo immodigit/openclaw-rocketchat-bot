@@ -1,8 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FileCheckpointStore } from "../src/checkpoints.js";
 
@@ -56,5 +56,40 @@ describe("FileCheckpointStore", () => {
     });
     await expect(store.hasSeen("main", "m1")).resolves.toBe(false);
     await expect(store.hasSeen("main", "m4")).resolves.toBe(true);
+  });
+
+  it("treats an empty checkpoint file as empty state instead of crashing", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rocketchat-checkpoints-"));
+    cleanupPaths.push(directory);
+    const path = join(directory, "state.json");
+    await writeFile(path, "");
+    const store = new FileCheckpointStore(path, 3);
+
+    await expect(store.hasSeen("main", "any-id")).resolves.toBe(false);
+    await expect(store.read("main")).resolves.toEqual({
+      updatedSince: null,
+      recentMessageIds: []
+    });
+
+    // Subsequent writes should succeed — the recover path must not leave
+    // the store in a broken state.
+    await store.markSeen("main", "m1");
+    await expect(store.hasSeen("main", "m1")).resolves.toBe(true);
+  });
+
+  it("recovers from a corrupted checkpoint file by resetting state", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rocketchat-checkpoints-"));
+    cleanupPaths.push(directory);
+    const path = join(directory, "state.json");
+    await writeFile(path, "{this is not valid json");
+    const store = new FileCheckpointStore(path, 3);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await expect(store.read("main")).resolves.toEqual({
+      updatedSince: null,
+      recentMessageIds: []
+    });
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });

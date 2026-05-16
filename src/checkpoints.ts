@@ -50,15 +50,43 @@ export class FileCheckpointStore {
   }
 
   private async loadState(): Promise<PersistedState> {
+    let raw: string;
     try {
-      const raw = await readFile(this.filePath, "utf8");
-      return JSON.parse(raw) as PersistedState;
+      raw = await readFile(this.filePath, "utf8");
     } catch (error) {
       if (isMissingFileError(error)) {
         return {};
       }
-
       throw error;
+    }
+    // An empty checkpoint file ("" or whitespace) shouldn't crash the
+    // websocket handler — it happens when a previous `saveState` was
+    // interrupted between mkdir and writeFile (e.g., container kill
+    // mid-write), or when an external process truncated the file.
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as PersistedState;
+      }
+      console.warn(
+        `[checkpoints] ${this.filePath}: unexpected JSON shape (${typeof parsed}), resetting to empty state`
+      );
+      return {};
+    } catch (error) {
+      // Corrupted JSON would otherwise propagate up through hasSeen and
+      // tear down the WebSocket inbound loop. Log + reset is the safer
+      // default — the worst case is one duplicate message delivery after
+      // a crash, vs. a permanent inbound outage for the whole account.
+      console.warn(
+        `[checkpoints] ${this.filePath}: failed to parse (${
+          error instanceof Error ? error.message : String(error)
+        }), resetting to empty state`
+      );
+      return {};
     }
   }
 

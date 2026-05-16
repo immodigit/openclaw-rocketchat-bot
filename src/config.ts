@@ -41,7 +41,15 @@ const accountSchema = z
     serverUrl: z.string().min(1),
     auth: z.union([tokenAuthSchema, passwordAuthSchema]),
     transport: transportSchema,
-    mentionNames: z.array(z.string().min(1)).default([])
+    mentionNames: z.array(z.string().min(1)).default([]),
+    /**
+     * If true (default), every bot reply lives inside a thread:
+     * thread mentions reuse the existing thread, top-level mentions
+     * create a new thread anchored on the trigger message. Set to
+     * false to fall back to "thread when triggered in thread, else
+     * reply top-level".
+     */
+    forceThread: z.boolean().default(true)
   })
   .strict();
 

@@ -182,9 +182,18 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
       if (ctx.channelRuntime) {
         const channelRuntime = ctx.channelRuntime;
+        // Always reply inside a thread. If the user @mentioned us inside an
+        // existing thread, stick with that thread; otherwise create a new
+        // thread anchored to the trigger message so channels stay tidy and
+        // each conversation has its own thread context.
+        const forceThread = account.forceThread !== false;
+        const replyTmid = forceThread
+          ? event.tmid ?? event.messageId
+          : event.tmid ?? undefined;
         await sendReplyLifecycle({
           client,
           roomId: event.roomId,
+          tmid: replyTmid ?? undefined,
           run: async (session) => {
             await dispatchInboundEventWithChannelRuntime({
               cfg: (ctx.cfg ?? {}) as OpenClawConfigLike,

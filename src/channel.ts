@@ -7,14 +7,25 @@ type ChannelRuleOptions = {
 };
 
 type ReplyClient = {
-  postMessage(roomId: string, text: string): Promise<string>;
+  postMessage(roomId: string, text: string, options?: { tmid?: string }): Promise<string>;
   updateMessage(roomId: string, messageId: string, text: string): Promise<void>;
-  uploadAttachment?(roomId: string, filePath: string, text?: string): Promise<string>;
+  uploadAttachment?(
+    roomId: string,
+    filePath: string,
+    text?: string,
+    options?: { tmid?: string }
+  ): Promise<string>;
 };
 
 type SendReplyLifecycleOptions = {
   client: ReplyClient;
   roomId: string;
+  /**
+   * Thread message id to anchor the bot's reply to. When set, the
+   * placeholder message and any follow-up attachments are posted as
+   * thread replies on top of this message id.
+   */
+  tmid?: string;
 } & (
   | {
       finalText: string;
@@ -67,7 +78,7 @@ export function shouldHandleInboundEvent(
 export async function sendReplyLifecycle(
   options: SendReplyLifecycleOptions
 ): Promise<string> {
-  const session = await createReplySession(options.client, options.roomId);
+  const session = await createReplySession(options.client, options.roomId, options.tmid);
 
   try {
     if (typeof options.run === "function") {
@@ -98,8 +109,13 @@ function normalizeMention(value: string): string {
   return value.trim().replace(/^@+/, "").toLowerCase();
 }
 
-async function createReplySession(client: ReplyClient, roomId: string): Promise<ReplySession> {
-  const messageId = await client.postMessage(roomId, THINKING_PLACEHOLDER);
+async function createReplySession(
+  client: ReplyClient,
+  roomId: string,
+  tmid: string | undefined
+): Promise<ReplySession> {
+  const threadOptions = tmid ? { tmid } : undefined;
+  const messageId = await client.postMessage(roomId, THINKING_PLACEHOLDER, threadOptions);
   let finalUpdated = false;
 
   return {
@@ -110,7 +126,12 @@ async function createReplySession(client: ReplyClient, roomId: string): Promise<
       }
       await client.updateMessage(roomId, messageId, formatReplyUpdate(kind, payload));
       if (kind === "final" && payload.attachmentPath && client.uploadAttachment) {
-        await client.uploadAttachment(roomId, payload.attachmentPath, payload.text?.trim() || undefined);
+        await client.uploadAttachment(
+          roomId,
+          payload.attachmentPath,
+          payload.text?.trim() || undefined,
+          threadOptions
+        );
       }
     },
     hasFinalUpdate: () => finalUpdated,

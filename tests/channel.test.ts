@@ -9,6 +9,7 @@ describe("shouldHandleInboundEvent", () => {
     roomId: "room-1",
     roomType: "channel",
     messageId: "m1",
+    tmid: null,
     senderId: "user-1",
     senderName: "alice",
     text: "hello",
@@ -107,7 +108,7 @@ describe("sendReplyLifecycle", () => {
     });
 
     expect(client.postMessage).toHaveBeenCalledTimes(1);
-    expect(client.postMessage).toHaveBeenCalledWith("room-1", "思考中...");
+    expect(client.postMessage).toHaveBeenCalledWith("room-1", "思考中...", undefined);
     expect(client.updateMessage).toHaveBeenNthCalledWith(
       1,
       "room-1",
@@ -213,7 +214,7 @@ describe("sendReplyLifecycle", () => {
     });
 
     expect(updateMessage).toHaveBeenCalledWith("room-1", "placeholder-1", "结果已生成");
-    expect(uploadAttachment).toHaveBeenCalledWith("room-1", "/tmp/result.zip", "结果已生成");
+    expect(uploadAttachment).toHaveBeenCalledWith("room-1", "/tmp/result.zip", "结果已生成", undefined);
   });
 
   it("ignores attachmentPath on non-final stages", async () => {

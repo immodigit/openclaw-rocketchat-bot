@@ -61,6 +61,8 @@ export type RocketChatMessageRecord = {
   ts?: string;
   _updatedAt?: string;
   t?: string;
+  /** Parent thread message id if this message is part of a thread. */
+  tmid?: string;
   u?: {
     _id?: string;
     username?: string;
@@ -168,14 +170,15 @@ export class RocketChatClient {
     return Array.isArray(result.updated) ? result.updated : [];
   }
 
-  async postMessage(roomId: string, text: string): Promise<string> {
+  async postMessage(roomId: string, text: string, options?: { tmid?: string }): Promise<string> {
     await this.initialize();
+    const body: Record<string, string> = { roomId, text };
+    if (options?.tmid) {
+      body.tmid = options.tmid;
+    }
     const payload = await this.requestJson(new URL("/api/v1/chat.postMessage", this.serverUrl), {
       method: "POST",
-      body: JSON.stringify({
-        roomId,
-        text
-      })
+      body: JSON.stringify(body)
     });
 
     const message = asObject(payload.message);
@@ -225,7 +228,12 @@ export class RocketChatClient {
     return filePath;
   }
 
-  async uploadAttachment(roomId: string, filePath: string, text?: string): Promise<string> {
+  async uploadAttachment(
+    roomId: string,
+    filePath: string,
+    text?: string,
+    options?: { tmid?: string }
+  ): Promise<string> {
     await this.initialize();
 
     const fileName = basename(filePath);
@@ -233,6 +241,9 @@ export class RocketChatClient {
     const formData = new FormData();
     if (text?.trim()) {
       formData.append("msg", text.trim());
+    }
+    if (options?.tmid) {
+      formData.append("tmid", options.tmid);
     }
     formData.append("file", new Blob([fileBytes]), fileName);
 

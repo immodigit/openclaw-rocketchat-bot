@@ -56,6 +56,7 @@ describe("RestPollingTransport", () => {
     expect(events[0]).toMatchObject({
       roomType: "direct",
       messageId: "m1",
+      tmid: null,
       attachments: []
     });
     expect(events[1]).toMatchObject({

@@ -36,7 +36,7 @@ describe("plugin manifest", () => {
     };
 
     expect(manifest.id).toBe("rocketchat");
-    expect(packageJson.name).toBe("@laevateinzzl/openclaw-rocketchat-bot");
+    expect(packageJson.name).toBe("@immodigit/openclaw-rocketchat-bot");
     expect(packageJson.private).toBe(false);
     expect(packageJson.publishConfig?.access).toBe("public");
     expect(packageJson.openclaw?.install?.npmSpec).toBe(packageJson.name);

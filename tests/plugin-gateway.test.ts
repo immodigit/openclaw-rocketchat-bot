@@ -93,7 +93,8 @@ describe("startGateway", () => {
           mode: "polling",
           pollIntervalMs: 15_000
         },
-        mentionNames: []
+        mentionNames: [],
+        forceThread: true
       },
       abortSignal: abortController.signal,
       setStatus: (status) => {
@@ -146,7 +147,8 @@ describe("startGateway", () => {
           mode: "websocket",
           reconnectDelayMs: 5000
         },
-        mentionNames: []
+        mentionNames: [],
+        forceThread: true
       },
       abortSignal: abortController.signal
     });
@@ -193,7 +195,8 @@ describe("startGateway", () => {
           mode: "websocket",
           reconnectDelayMs: 5000
         },
-        mentionNames: []
+        mentionNames: [],
+        forceThread: true
       }
     }).then(
       () => {
@@ -246,7 +249,8 @@ describe("startGateway", () => {
           mode: "polling",
           pollIntervalMs: 15_000
         },
-        mentionNames: []
+        mentionNames: [],
+        forceThread: true
       },
       abortSignal: abortController.signal
     }).catch(() => undefined);
@@ -256,6 +260,7 @@ describe("startGateway", () => {
       roomId: "room-1",
       roomType: "direct",
       messageId: "m-1",
+      tmid: null,
       senderId: "user-1",
       senderName: "Alice",
       text: "请看附件",

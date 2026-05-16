@@ -1,8 +1,13 @@
 {
-  "name": "@laevateinzzl/openclaw-rocketchat-bot",
-  "version": "0.1.9",
+  "name": "@immodigit/openclaw-rocketchat-bot",
+  "version": "0.2.0",
   "private": false,
-  "description": "Rocket.Chat channel plugin for OpenClaw",
+  "description": "Rocket.Chat channel plugin for OpenClaw — fork with thread-anchored replies",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/immodigit/openclaw-rocketchat-bot.git"
+  },
+  "homepage": "https://github.com/immodigit/openclaw-rocketchat-bot#readme",
   "license": "MIT",
   "files": [
     "dist",
@@ -49,7 +54,7 @@
       ]
     },
     "install": {
-      "npmSpec": "@laevateinzzl/openclaw-rocketchat-bot",
+      "npmSpec": "@immodigit/openclaw-rocketchat-bot",
       "localPath": ".",
       "defaultChoice": "npm"
     }

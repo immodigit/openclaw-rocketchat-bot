@@ -218,6 +218,7 @@ function createDispatchHarness(params?: {
     roomId: "room-1",
     roomType: "direct",
     messageId: "message-1",
+    tmid: null,
     senderId: "user-1",
     senderName: "Alice",
     text: "你好",

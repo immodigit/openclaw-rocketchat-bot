@@ -100,6 +100,7 @@ describe("createWebSocketTransport", () => {
     expect(events[0]).toMatchObject({
       roomType: "direct",
       messageId: "m-1",
+      tmid: null,
       roomId: "room-1",
       senderId: "user-1",
       mentions: ["ai"],

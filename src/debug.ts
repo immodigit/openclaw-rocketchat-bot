@@ -74,7 +74,8 @@ export function resolveDebugAccountConfigFromEnv(env: DebugEnv): DebugAccountCon
     serverUrl: account.serverUrl,
     auth: account.auth,
     transport: account.transport,
-    mentionNames: account.mentionNames
+    mentionNames: account.mentionNames,
+    forceThread: account.forceThread
   };
 }
 

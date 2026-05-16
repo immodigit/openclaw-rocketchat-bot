@@ -178,6 +178,7 @@ function toInboundEvent(
     roomId: message.rid,
     roomType: mapRoomType(subscription.t),
     messageId: message._id,
+    tmid: message.tmid ?? null,
     senderId: message.u?._id ?? "",
     senderName: message.u?.username ?? message.u?.name ?? "",
     text: message.msg ?? "",

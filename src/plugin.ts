@@ -14,6 +14,7 @@ import {
   type ChannelRuntimeLike,
   type OpenClawConfigLike
 } from "./inbound-dispatch.js";
+import { getInboundAnchor, recordInboundAnchor } from "./inbound-state.js";
 
 export type ResolvedAccount = PluginAccountConfig & {
   accountId: string;
@@ -165,7 +166,19 @@ export const rocketchatPlugin = {
         .trim()
         .replace(/^rocketchat:(?:channel:|user:)?/i, "")
         .replace(/^channel:/i, "");
-      const tmidOptions = params.replyToId ? { tmid: params.replyToId } : undefined;
+
+      // Compute the thread anchor. Caller-supplied replyToId wins;
+      // otherwise consult the per-room cache populated by onEvent
+      // (so tool-based sends that lack inbound context still thread).
+      let tmid = params.replyToId;
+      if (!tmid && account.forceThread !== false) {
+        const anchor = getInboundAnchor(target);
+        if (anchor) {
+          tmid = anchor.tmid ?? anchor.messageId;
+        }
+      }
+
+      const tmidOptions = tmid ? { tmid } : undefined;
       const messageId = await client.postMessage(target, params.text, tmidOptions);
       return { ok: true, messageId, channel: "rocketchat" };
     }
@@ -220,6 +233,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       ) {
         return;
       }
+
+      // Cache the anchor so tool-based outbound (which doesn't carry the
+      // inbound context) can still pin its reply to the right thread.
+      recordInboundAnchor(event.roomId, {
+        messageId: event.messageId,
+        tmid: event.tmid
+      });
 
       if (ctx.channelRuntime) {
         const channelRuntime = ctx.channelRuntime;

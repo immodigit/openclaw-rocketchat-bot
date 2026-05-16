@@ -339,6 +339,89 @@ describe("createWebSocketTransport", () => {
       )
     ).toHaveLength(1);
   });
+
+  it("collapses re-delivered DDP frames for the same messageId into a single onEvent call", async () => {
+    const events: InboundEvent[] = [];
+    const socket = new FakeWebSocket();
+    const client = {
+      listSubscriptions: vi.fn().mockResolvedValue([{ rid: "room-d", t: "c" }])
+    };
+    // Slow onEvent + slow markSeen reproduces the race: a second
+    // DDP delivery arrives while the first dispatch is still mid-flight
+    // and the checkpoint has not been persisted yet.
+    let resolveFirst: (() => void) | null = null;
+    const firstHandled = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const checkpointStore = {
+      hasSeen: vi.fn().mockResolvedValue(false),
+      markSeen: vi.fn().mockImplementation(async () => {
+        // Wait long enough for the second DDP frame to be processed
+        await new Promise((r) => setTimeout(r, 5));
+      })
+    };
+
+    const transport = createWebSocketTransport({
+      accountId: "main",
+      botUserId: "bot-user",
+      serverUrl: "https://chat.example.com",
+      userId: "bot-user",
+      authToken: "resume-token",
+      client,
+      checkpointStore,
+      onEvent: async (event) => {
+        events.push(event);
+        // Hold the first call open until the test pumps the second frame
+        if (events.length === 1) {
+          await firstHandled;
+        }
+      },
+      websocketFactory: () => socket
+    });
+
+    const startPromise = transport.start();
+    socket.emitOpen();
+    socket.emitMessage({ msg: "connected", session: "session-1" });
+    socket.emitMessage({
+      msg: "result",
+      id: "login",
+      result: { id: "bot-user", token: "resume-token", type: "resume" }
+    });
+    await startPromise;
+
+    const duplicate = {
+      msg: "changed",
+      collection: "stream-room-messages",
+      fields: {
+        eventName: "room-d",
+        args: [
+          {
+            _id: "dup-1",
+            rid: "room-d",
+            msg: "hello",
+            ts: "2026-03-26T08:40:00.000Z",
+            u: { _id: "user-1", username: "alice", name: "Alice" }
+          }
+        ]
+      }
+    };
+
+    // Fire the same frame twice — first one acquires the inflight slot
+    // and stalls inside onEvent; the second should short-circuit before
+    // calling onEvent again.
+    socket.emitMessage(duplicate);
+    await Promise.resolve();
+    socket.emitMessage(duplicate);
+    await flushAsync();
+
+    expect(events).toHaveLength(1);
+
+    resolveFirst?.();
+    await flushAsync();
+    await flushAsync();
+    expect(events).toHaveLength(1);
+    expect(checkpointStore.markSeen).toHaveBeenCalledTimes(1);
+  });
 });
 
 type Frame = Record<string, unknown>;

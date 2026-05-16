@@ -57,6 +57,19 @@ class RocketChatWebSocketTransport implements InboundTransport {
   private roomTypes = new Map<string, InboundEvent["roomType"]>();
   private subscribedRooms = new Set<string>();
   private refreshPromise: Promise<void> = Promise.resolve();
+  /**
+   * Tracks messageIds whose `onEvent` is currently running. The
+   * checkpoint store is async + persisted to disk; in the gap between
+   * `shouldIgnoreMessage` returning false and `markSeen` writing,
+   * Rocket.Chat occasionally re-delivers the same DDP frame several
+   * times in quick succession, especially right after subscribe. Each
+   * redelivery would otherwise re-trigger the agent pipeline and post
+   * a fresh placeholder message — visible to users as several
+   * duplicate "(no reply generated)" replies in the same thread. The
+   * in-memory inflight set short-circuits the race before any heavy
+   * work happens.
+   */
+  private inflightMessages = new Set<string>();
 
   constructor(options: WebSocketTransportOptions) {
     this.accountId = options.accountId;
@@ -247,14 +260,24 @@ class RocketChatWebSocketTransport implements InboundTransport {
       return;
     }
 
+    const messageId = message._id as string;
+    if (this.inflightMessages.has(messageId)) {
+      return;
+    }
+    this.inflightMessages.add(messageId);
+
     const roomId = message.rid || eventName;
     const event = toInboundEvent(this.accountId, this.roomTypes.get(roomId) ?? "channel", {
       ...message,
       rid: roomId
     }, this.serverUrl);
 
-    await this.onEvent(event);
-    await this.checkpointStore.markSeen(this.accountId, message._id);
+    try {
+      await this.onEvent(event);
+      await this.checkpointStore.markSeen(this.accountId, messageId);
+    } finally {
+      this.inflightMessages.delete(messageId);
+    }
   }
 
   private async shouldIgnoreMessage(message: RocketChatMessageRecord): Promise<boolean> {

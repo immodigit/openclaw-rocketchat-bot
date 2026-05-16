@@ -4,7 +4,9 @@
   "description": "Rocket.Chat channel plugin for OpenClaw with REST polling and WebSocket inbound support.",
   "version": "0.1.9",
   "kind": "channel",
-  "channels": ["rocketchat"],
+  "channels": [
+    "rocketchat"
+  ],
   "channelConfigs": {
     "rocketchat": {
       "schema": {
@@ -17,8 +19,13 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
-                "enabled": { "type": "boolean" },
-                "serverUrl": { "type": "string", "minLength": 1 },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "serverUrl": {
+                  "type": "string",
+                  "minLength": 1
+                },
                 "auth": {
                   "type": "object",
                   "oneOf": [
@@ -26,21 +33,45 @@
                       "type": "object",
                       "additionalProperties": false,
                       "properties": {
-                        "mode": { "const": "token" },
-                        "userId": { "type": "string", "minLength": 1 },
-                        "accessToken": { "type": "string", "minLength": 1 }
+                        "mode": {
+                          "const": "token"
+                        },
+                        "userId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "accessToken": {
+                          "type": "string",
+                          "minLength": 1
+                        }
                       },
-                      "required": ["mode", "userId", "accessToken"]
+                      "required": [
+                        "mode",
+                        "userId",
+                        "accessToken"
+                      ]
                     },
                     {
                       "type": "object",
                       "additionalProperties": false,
                       "properties": {
-                        "mode": { "const": "password" },
-                        "username": { "type": "string", "minLength": 1 },
-                        "password": { "type": "string", "minLength": 1 }
+                        "mode": {
+                          "const": "password"
+                        },
+                        "username": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "password": {
+                          "type": "string",
+                          "minLength": 1
+                        }
                       },
-                      "required": ["mode", "username", "password"]
+                      "required": [
+                        "mode",
+                        "username",
+                        "password"
+                      ]
                     }
                   ]
                 },
@@ -51,28 +82,54 @@
                       "type": "object",
                       "additionalProperties": false,
                       "properties": {
-                        "mode": { "const": "polling" },
-                        "pollIntervalMs": { "type": "integer", "minimum": 1000 }
+                        "mode": {
+                          "const": "polling"
+                        },
+                        "pollIntervalMs": {
+                          "type": "integer",
+                          "minimum": 1000
+                        }
                       },
-                      "required": ["mode"]
+                      "required": [
+                        "mode"
+                      ]
                     },
                     {
                       "type": "object",
                       "additionalProperties": false,
                       "properties": {
-                        "mode": { "const": "websocket" },
-                        "reconnectDelayMs": { "type": "integer", "minimum": 1000 }
+                        "mode": {
+                          "const": "websocket"
+                        },
+                        "reconnectDelayMs": {
+                          "type": "integer",
+                          "minimum": 1000
+                        }
                       },
-                      "required": ["mode"]
+                      "required": [
+                        "mode"
+                      ]
                     }
                   ]
                 },
                 "mentionNames": {
                   "type": "array",
-                  "items": { "type": "string", "minLength": 1 }
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "forceThread": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "If true (default), every bot reply lives inside a thread. Set false to fall back to: thread when triggered in thread, else reply top-level."
                 }
               },
-              "required": ["enabled", "serverUrl", "auth"]
+              "required": [
+                "enabled",
+                "serverUrl",
+                "auth"
+              ]
             }
           }
         }
@@ -117,8 +174,13 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" },
-            "serverUrl": { "type": "string", "minLength": 1 },
+            "enabled": {
+              "type": "boolean"
+            },
+            "serverUrl": {
+              "type": "string",
+              "minLength": 1
+            },
             "auth": {
               "type": "object",
               "oneOf": [
@@ -126,21 +188,45 @@
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
-                    "mode": { "const": "token" },
-                    "userId": { "type": "string", "minLength": 1 },
-                    "accessToken": { "type": "string", "minLength": 1 }
+                    "mode": {
+                      "const": "token"
+                    },
+                    "userId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "accessToken": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   },
-                  "required": ["mode", "userId", "accessToken"]
+                  "required": [
+                    "mode",
+                    "userId",
+                    "accessToken"
+                  ]
                 },
                 {
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
-                    "mode": { "const": "password" },
-                    "username": { "type": "string", "minLength": 1 },
-                    "password": { "type": "string", "minLength": 1 }
+                    "mode": {
+                      "const": "password"
+                    },
+                    "username": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "password": {
+                      "type": "string",
+                      "minLength": 1
+                    }
                   },
-                  "required": ["mode", "username", "password"]
+                  "required": [
+                    "mode",
+                    "username",
+                    "password"
+                  ]
                 }
               ]
             },
@@ -151,28 +237,53 @@
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
-                    "mode": { "const": "polling" },
-                    "pollIntervalMs": { "type": "integer", "minimum": 1000 }
+                    "mode": {
+                      "const": "polling"
+                    },
+                    "pollIntervalMs": {
+                      "type": "integer",
+                      "minimum": 1000
+                    }
                   },
-                  "required": ["mode"]
+                  "required": [
+                    "mode"
+                  ]
                 },
                 {
                   "type": "object",
                   "additionalProperties": false,
                   "properties": {
-                    "mode": { "const": "websocket" },
-                    "reconnectDelayMs": { "type": "integer", "minimum": 1000 }
+                    "mode": {
+                      "const": "websocket"
+                    },
+                    "reconnectDelayMs": {
+                      "type": "integer",
+                      "minimum": 1000
+                    }
                   },
-                  "required": ["mode"]
+                  "required": [
+                    "mode"
+                  ]
                 }
               ]
             },
             "mentionNames": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 }
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "forceThread": {
+              "type": "boolean",
+              "default": true
             }
           },
-          "required": ["enabled", "serverUrl", "auth"]
+          "required": [
+            "enabled",
+            "serverUrl",
+            "auth"
+          ]
         }
       }
     }

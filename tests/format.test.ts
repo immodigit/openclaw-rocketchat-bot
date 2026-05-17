@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import { THINKING_PLACEHOLDER, formatFinalReply } from "../src/format.js";
 
 describe("formatFinalReply", () => {
-  it("uses a stable thinking placeholder", () => {
-    expect(THINKING_PLACEHOLDER).toBe("Thinking…");
+  it("uses a stable thinking placeholder with a loading-style emoji", () => {
+    expect(THINKING_PLACEHOLDER).toMatch(/⏳/);
+    expect(THINKING_PLACEHOLDER).toMatch(/denke nach/i);
   });
 
   it("preserves fenced code blocks", () => {

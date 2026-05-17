@@ -1,8 +1,34 @@
-export const THINKING_PLACEHOLDER = "Thinking…";
+export const THINKING_PLACEHOLDER = "⏳ Moment … (denke nach)";
 export const EMPTY_REPLY_FALLBACK = "(no reply generated)";
-export const TOOL_REPLY_FALLBACK = "Running a tool…";
-export const BLOCK_REPLY_FALLBACK = "Drafting a reply…";
-export const FAILED_REPLY_FALLBACK = "Something went wrong while replying. Try again.";
+export const TOOL_REPLY_FALLBACK = "🔧 Tool wird benutzt …";
+export const BLOCK_REPLY_FALLBACK = "✍️ Antwort wird gebaut …";
+export const FAILED_REPLY_FALLBACK = "❌ Etwas ist beim Antworten schiefgelaufen. Bitte nochmal mentionen.";
+
+/**
+ * Watchdog stages — when the agent doesn't push an update for a
+ * while, the placeholder text itself becomes the status indicator.
+ * Each stage replaces the previous one so the user sees movement
+ * ("Bot lebt noch, dauert nur") rather than a frozen "Thinking…".
+ */
+export type WatchdogStage = {
+  /** Seconds since the placeholder was created (no agent updates since). */
+  afterSeconds: number;
+  /** Text the placeholder is updated to once this threshold is crossed. */
+  text: string;
+  /**
+   * If true, the watchdog stops after applying this stage — the agent
+   * is considered dead and the placeholder is left in this state until
+   * the user re-triggers (or a late final update arrives and replaces
+   * the text anyway).
+   */
+  terminal?: boolean;
+};
+
+export const WATCHDOG_STAGES: WatchdogStage[] = [
+  { afterSeconds: 60, text: "⏳ Bin dran … (1m+)" },
+  { afterSeconds: 300, text: "🤔 Dauert länger als üblich (5m+)" },
+  { afterSeconds: 900, text: "❌ Keine Antwort. Bitte @-noch-mal-mentionen.", terminal: true }
+];
 
 type ReplyPayload = {
   text?: string;

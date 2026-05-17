@@ -1,4 +1,10 @@
-import { EMPTY_REPLY_FALLBACK, formatReplyFailure, formatReplyUpdate, THINKING_PLACEHOLDER } from "./format.js";
+import {
+  EMPTY_REPLY_FALLBACK,
+  formatReplyFailure,
+  formatReplyUpdate,
+  THINKING_PLACEHOLDER,
+  WATCHDOG_STAGES
+} from "./format.js";
 import type { InboundEvent } from "./inbound/types.js";
 
 type ChannelRuleOptions = {
@@ -127,9 +133,62 @@ async function createReplySession(
   const messageId = await client.postMessage(roomId, THINKING_PLACEHOLDER, threadOptions);
   let finalUpdated = false;
 
+  // Watchdog: if the agent never emits any update (crash, hang, lost
+  // connection), the "⏳ Moment …" placeholder would otherwise sit in
+  // the channel forever. Walk through WATCHDOG_STAGES (60s/5m/15m) and
+  // update the placeholder text to show liveness — and eventually mark
+  // the bot as dead with a final terminal message asking the user to
+  // re-trigger.
+  //
+  // Stops as soon as the agent emits its first real update (any kind),
+  // because from that point the user sees real tool/block/final
+  // content and the watchdog would only overwrite it.
+  let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  let appliedStages = 0;
+  const startedAt = Date.now();
+
+  const stopWatchdog = (): void => {
+    if (watchdogTimer !== null) {
+      clearInterval(watchdogTimer);
+      watchdogTimer = null;
+    }
+  };
+
+  const runWatchdog = async (): Promise<void> => {
+    const elapsedS = (Date.now() - startedAt) / 1000;
+    while (appliedStages < WATCHDOG_STAGES.length) {
+      const stage = WATCHDOG_STAGES[appliedStages];
+      if (elapsedS < stage.afterSeconds) {
+        return;
+      }
+      appliedStages += 1;
+      try {
+        await client.updateMessage(roomId, messageId, stage.text);
+      } catch {
+        // Best-effort: a transient update failure shouldn't kill the
+        // watchdog. The next tick or the agent's own update will retry.
+      }
+      if (stage.terminal) {
+        stopWatchdog();
+        return;
+      }
+    }
+  };
+
+  watchdogTimer = setInterval(() => {
+    void runWatchdog();
+  }, 15_000);
+  // Don't pin the Node event loop — let normal shutdown win.
+  if (typeof watchdogTimer === "object" && watchdogTimer !== null && "unref" in watchdogTimer) {
+    (watchdogTimer as { unref: () => void }).unref();
+  }
+
   return {
     messageId,
     update: async ({ kind, payload }) => {
+      // First real update from the agent — the user now sees real
+      // content, so the watchdog has done its job.
+      stopWatchdog();
       if (kind === "final") {
         finalUpdated = true;
       }
@@ -171,6 +230,7 @@ async function createReplySession(
     },
     hasFinalUpdate: () => finalUpdated,
     fail: async (_error) => {
+      stopWatchdog();
       await client.updateMessage(roomId, messageId, formatReplyFailure());
     }
   };

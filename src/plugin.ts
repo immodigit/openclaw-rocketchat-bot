@@ -269,7 +269,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 })}`
               )
           );
-          event.text = mergeTranscriptionsIntoText(event.text, transcripts);
+          event.text = mergeTranscriptionsIntoText(event.text, transcripts, {
+            mentionAliases: mentionNames
+          });
         }
       }
 

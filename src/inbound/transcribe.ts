@@ -204,10 +204,18 @@ function deriveFileName(url: string | undefined): string {
  * Merge transcribed text back into a Rocket.Chat message body. Existing
  * text is preserved; each transcription appears as a clearly delimited
  * block so the agent (and downstream mention filter) can read it.
+ *
+ * When `mentionAliases` is supplied, occurrences of those aliases inside
+ * the transcript are prefixed with `@` so the downstream mention filter
+ * (which looks for literal `@alias` substrings) routes the message to
+ * the right bot. Whisper never produces the @ symbol when a human says
+ * a name aloud, so without this step a voice note like "Hey andi …"
+ * would be silently dropped even though it clearly addresses the bot.
  */
 export function mergeTranscriptionsIntoText(
   originalText: string,
-  transcriptions: TranscribeResult[]
+  transcriptions: TranscribeResult[],
+  options?: { mentionAliases?: string[] }
 ): string {
   const usable = transcriptions
     .map((t) => t.text?.trim())
@@ -215,14 +223,37 @@ export function mergeTranscriptionsIntoText(
   if (usable.length === 0) {
     return originalText;
   }
+  const aliases = (options?.mentionAliases ?? [])
+    .map((a) => a.trim().replace(/^@+/, "").toLowerCase())
+    .filter((a) => a.length > 0);
   const blocks = usable.map(
     (t, i) =>
       usable.length === 1
-        ? `[Sprachnachricht-Transkription]: ${t}`
-        : `[Sprachnachricht-Transkription ${i + 1}]: ${t}`
+        ? `[Sprachnachricht-Transkription]: ${prefixAliases(t, aliases)}`
+        : `[Sprachnachricht-Transkription ${i + 1}]: ${prefixAliases(t, aliases)}`
   );
   if (originalText.trim().length === 0) {
     return blocks.join("\n");
   }
   return `${originalText}\n${blocks.join("\n")}`;
+}
+
+function prefixAliases(transcript: string, aliases: string[]): string {
+  if (aliases.length === 0) {
+    return transcript;
+  }
+  // Match each alias as a standalone word — case-insensitive, only when
+  // not already preceded by `@` — and inject the `@` so the downstream
+  // mention filter sees a regular @mention. Aliases are escaped for
+  // regex safety even though they're normally plain ASCII.
+  let out = transcript;
+  for (const alias of aliases) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // (?<!@) avoids double-prefixing if the user / TTS happened to emit
+    // a literal "@alias"; \b enforces word boundaries so we don't match
+    // "andiana" when alias is "andi".
+    const pattern = new RegExp(`(?<!@)\\b(${escaped})\\b`, "gi");
+    out = out.replace(pattern, "@$1");
+  }
+  return out;
 }

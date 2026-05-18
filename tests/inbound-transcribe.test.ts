@@ -104,6 +104,53 @@ describe("mergeTranscriptionsIntoText", () => {
     );
   });
 
+  it("prefixes spoken aliases with @ so the mention filter accepts them", async () => {
+    const { mergeTranscriptionsIntoText } = await loadSubject();
+    const merged = mergeTranscriptionsIntoText(
+      "",
+      [
+        {
+          attachment: ANY_AUDIO,
+          text: "Hey andi, kannst du den Bug bei Kröncke nochmal anschauen? Frag Bettina ob die Rechnung schon raus ist.",
+          durationMs: 1
+        }
+      ],
+      { mentionAliases: ["andi", "andi-kirch", "bettina"] }
+    );
+    // andi gets prefixed, bettina also; substrings inside other words
+    // don't get prefixed (no word break)
+    expect(merged).toBe(
+      "[Sprachnachricht-Transkription]: Hey @andi, kannst du den Bug bei Kröncke nochmal anschauen? Frag @Bettina ob die Rechnung schon raus ist."
+    );
+  });
+
+  it("does not double-prefix aliases that the user (or TTS) already wrote with @", async () => {
+    const { mergeTranscriptionsIntoText } = await loadSubject();
+    const merged = mergeTranscriptionsIntoText(
+      "",
+      [
+        {
+          attachment: ANY_AUDIO,
+          text: "Hi @andi, was ist mit andi-kirch los?",
+          durationMs: 1
+        }
+      ],
+      { mentionAliases: ["andi", "andi-kirch"] }
+    );
+    expect(merged).toBe(
+      "[Sprachnachricht-Transkription]: Hi @andi, was ist mit @andi-kirch los?"
+    );
+  });
+
+  it("leaves the transcript untouched when no aliases are provided", async () => {
+    const { mergeTranscriptionsIntoText } = await loadSubject();
+    const merged = mergeTranscriptionsIntoText(
+      "",
+      [{ attachment: ANY_AUDIO, text: "Hey andi.", durationMs: 1 }]
+    );
+    expect(merged).toBe("[Sprachnachricht-Transkription]: Hey andi.");
+  });
+
   it("numbers blocks when several audio attachments were transcribed", async () => {
     const { mergeTranscriptionsIntoText } = await loadSubject();
     const merged = mergeTranscriptionsIntoText("Zwei Sprachen:", [

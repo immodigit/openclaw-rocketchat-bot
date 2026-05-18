@@ -1,4 +1,4 @@
-export type InboundAttachmentKind = "image" | "document" | "video" | "unknown";
+export type InboundAttachmentKind = "image" | "audio" | "document" | "video" | "unknown";
 
 export type InboundAttachment = {
   kind: InboundAttachmentKind;
@@ -35,6 +35,22 @@ type AttachmentRecord = {
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif"]);
 const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "mkv", "webm", "avi", "m4v"]);
+// .webm is intentionally NOT in AUDIO_EXTENSIONS — it's ambiguous and the
+// VIDEO branch wins on extension. The MIME type check above always runs
+// first, so a voice note arriving as audio/webm is still classified as
+// audio. The extension fallback only matters when MIME is absent.
+const AUDIO_EXTENSIONS = new Set([
+  "mp3",
+  "m4a",
+  "ogg",
+  "oga",
+  "opus",
+  "wav",
+  "flac",
+  "aac",
+  "amr",
+  "weba"
+]);
 const DOCUMENT_EXTENSIONS = new Set([
   "pdf",
   "doc",
@@ -234,6 +250,10 @@ function classifyAttachment(
     return "image";
   }
 
+  if (mimeType?.startsWith("audio/")) {
+    return "audio";
+  }
+
   if (mimeType?.startsWith("video/")) {
     return "video";
   }
@@ -249,6 +269,10 @@ function classifyAttachment(
 
   if (IMAGE_EXTENSIONS.has(extension)) {
     return "image";
+  }
+
+  if (AUDIO_EXTENSIONS.has(extension)) {
+    return "audio";
   }
 
   if (VIDEO_EXTENSIONS.has(extension)) {

@@ -7,6 +7,12 @@ import { RocketChatClient } from "./client.js";
 import { parsePluginConfig, type PluginAccountConfig } from "./config.js";
 import type { InboundAttachment } from "./inbound/attachments.js";
 import { RestPollingTransport } from "./inbound/polling.js";
+import {
+  mergeTranscriptionsIntoText,
+  transcribeAudioAttachments,
+  transcribeConfigFromEnv,
+  type TranscribeConfig
+} from "./inbound/transcribe.js";
 import type { InboundTransport } from "./inbound/types.js";
 import { createWebSocketTransport } from "./inbound/websocket.js";
 import {
@@ -207,6 +213,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   );
   const fatalError = createDeferred<void>();
   let warnedAboutMissingRuntime = false;
+  let warnedAboutMissingTranscribeKey = false;
+  // Resolve transcription config once per account boot; null when no
+  // OPENAI_API_KEY is present so the per-event path can skip cheaply.
+  const transcribeConfig: TranscribeConfig | null =
+    account.transcribeAudio === false ? null : transcribeConfigFromEnv();
 
   const transport = createInboundTransport({
     account,
@@ -225,6 +236,45 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     },
     onEvent: async (event) => {
       const mentionNames = dedupeMentions([identity.username, ...account.mentionNames]);
+
+      // Voice-note pre-pass: when the inbound carries audio attachments,
+      // transcribe them via Whisper and merge the result into event.text
+      // BEFORE the mention filter runs. Without this step a recorded
+      // "Hey @andi …" arrives as msg="", the filter sees no mention and
+      // silently drops the message. After this step the transcript
+      // contains the spoken @-mention (or plain agent name) and the
+      // filter accepts it like any other text trigger.
+      if (
+        account.transcribeAudio !== false &&
+        event.attachments.some((a) => a.kind === "audio")
+      ) {
+        if (!transcribeConfig) {
+          if (!warnedAboutMissingTranscribeKey) {
+            warnedAboutMissingTranscribeKey = true;
+            console.warn(
+              `[rocketchat:${account.accountId}] audio attachment received but OPENAI_API_KEY is unset — skipping transcription`
+            );
+          }
+        } else {
+          const transcripts = await transcribeAudioAttachments(
+            event.attachments,
+            client,
+            transcribeConfig,
+            (entry) =>
+              console.log(
+                `[rocketchat:${account.accountId}] ${JSON.stringify({
+                  ...entry,
+                  roomId: event.roomId,
+                  messageId: event.messageId
+                })}`
+              )
+          );
+          event.text = mergeTranscriptionsIntoText(event.text, transcripts, {
+            mentionAliases: mentionNames
+          });
+        }
+      }
+
       if (
         !shouldHandleInboundEvent(event, {
           botUserId: identity.userId,

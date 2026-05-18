@@ -63,6 +63,43 @@ describe("normalizeInboundAttachments", () => {
     ]);
   });
 
+  it("classifies voice notes and audio uploads as audio", async () => {
+    const { normalizeInboundAttachments } = await loadSubject();
+
+    const attachments = normalizeInboundAttachments([
+      // typical Rocket.Chat mobile voice note: audio/webm MIME wins
+      // over the .webm extension that would otherwise look like video
+      {
+        title: "audio-record.webm",
+        title_link: "https://chat.example.com/file/audio-record.webm",
+        type: "audio/webm"
+      },
+      // iOS voice memo / m4a
+      {
+        title: "voice-memo.m4a",
+        title_link: "https://chat.example.com/file/voice-memo.m4a",
+        type: "audio/mp4"
+      },
+      // plain mp3 upload with mime missing → extension-based fallback
+      {
+        title: "podcast-snippet.mp3",
+        title_link: "https://chat.example.com/file/podcast-snippet.mp3"
+      },
+      // .opus extension typical for ogg-encapsulated voice notes
+      {
+        title: "voice-2026-05-18.opus",
+        title_link: "https://chat.example.com/file/voice-2026-05-18.opus"
+      }
+    ]);
+
+    expect(attachments).toEqual([
+      expect.objectContaining({ kind: "audio", fileName: "audio-record.webm" }),
+      expect.objectContaining({ kind: "audio", fileName: "voice-memo.m4a" }),
+      expect.objectContaining({ kind: "audio", fileName: "podcast-snippet.mp3" }),
+      expect.objectContaining({ kind: "audio", fileName: "voice-2026-05-18.opus" })
+    ]);
+  });
+
   it("classifies mp4, mov, and webm attachments as video", async () => {
     const { normalizeInboundAttachments } = await loadSubject();
 

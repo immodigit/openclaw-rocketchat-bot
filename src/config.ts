@@ -58,7 +58,17 @@ const accountSchema = z
      * session key are used — letting different bot identities map onto
      * different agent loops, workspaces, and personas.
      */
-    agent: z.string().min(1).optional()
+    agent: z.string().min(1).optional(),
+    /**
+     * When true (default), incoming voice notes / audio attachments are
+     * downloaded and transcribed via the OpenAI-compatible Whisper
+     * endpoint (see OPENCLAW_TRANSCRIBE_* env vars). The transcription
+     * is merged into the message text BEFORE the mention filter runs,
+     * so a voice note where the user says "Hey @andi …" gets routed
+     * normally even though the original `msg` field is empty. Falls
+     * back to no-transcription when the API key is missing.
+     */
+    transcribeAudio: z.boolean().default(true)
   })
   .strict();
 

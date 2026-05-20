@@ -101,3 +101,31 @@ Both `debug:client` and `debug:poll` load `.env` from project root, then overlay
 - Runtime: `zod` only (config validation)
 - Dev: `typescript`, `vitest`, `@types/node`
 - No React, no Express, no database drivers
+
+## Memory — tool-progress feature & live ops (Stand 2026-05-20)
+
+- **Tool-progress view:** `format.ts`/`channel.ts` render a live progress view —
+  `🛠️ Ich arbeite daran …` plus a rolling list of step lines (cap 6, consecutive
+  duplicates skipped) — from `kind:"tool"` deliveries, replacing the static
+  "denke nach" placeholder. The final answer replaces the view. `ReplyProgressState`
+  (one per reply lifecycle) threads the rolling lines through `formatReplyUpdate`.
+- **Host gating (important):** the OpenClaw host only emits `kind:"tool"` deliveries
+  when verbose progress is on. Requires `agents.defaults.verboseDefault: "on"`
+  (+ `toolProgressDetail: "explain"` for concise lines) in the instance's
+  `~/.openclaw/openclaw.json`. Without it the bot message goes placeholder → final
+  with no progress view. Plugin code is necessary but NOT sufficient.
+- **Deploy:** push to `main`; the OpenClaw pod's initContainer pulls
+  `github:immodigit/openclaw-rocketchat-bot#main` (env `ROCKETCHAT_PLUGIN_REF=main`)
+  and rebuilds on pod start. Redeploy = `kubectl delete pod openclaw-0 -n openclaw`
+  (~2-4 min; 11 initContainers incl. the npm build). Verify:
+  `grep -c TOOL_PROGRESS_HEADER ~/.openclaw/extensions/openclaw-rocketchat-bot/dist/format.js`.
+- **Runs in:** K8s ns `openclaw`, pod `openclaw-0`, ~13 bot accounts
+  (clio/default, bettina, konrad, marco, sandra, ben, beate, …) on chat.immodigit.de.
+- **e2e test:** Rocket.Chat REST — `POST /api/v1/login`, `POST /api/v1/im.create`
+  `{username:<bot>}`, `POST /api/v1/chat.postMessage`. Bots reply as **thread
+  replies** (`forceThread:true`) → poll `GET /api/v1/chat.getThreadMessages?tmid=
+  <trigger_msg_id>`; `im.history` omits thread replies. Verified live 2026-05-20:
+  bot `konrad` showed `🛠️ Ich arbeite daran …` then the final answer.
+- Pre-existing: `tests/plugin-gateway.test.ts` + `tests/websocket.test.ts` have
+  5 unrelated `tsc` errors (transcribeAudio / never-callable); `npm test` (vitest)
+  is green, `npm run build` (src only) is clean.

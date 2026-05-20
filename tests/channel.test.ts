@@ -113,7 +113,7 @@ describe("sendReplyLifecycle", () => {
       1,
       "room-1",
       "placeholder-1",
-      "🔧 Tool wird benutzt …"
+      "🛠️ Ich arbeite daran …"
     );
     expect(client.updateMessage).toHaveBeenNthCalledWith(
       2,
@@ -126,6 +126,45 @@ describe("sendReplyLifecycle", () => {
       "room-1",
       "placeholder-1",
       "最终答案"
+    );
+  });
+
+  it("folds successive tool steps into one rolling progress view", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      run: async (session) => {
+        await session.update({ kind: "tool", payload: { text: "🔎 Web Search: Markt" } });
+        await session.update({ kind: "tool", payload: { text: "📖 Read: docs/markt.md" } });
+        await session.update({ kind: "final", payload: { text: "Analyse fertig." } });
+      }
+    });
+
+    // First tool step: header + the step itself replaces "denke nach".
+    expect(client.updateMessage).toHaveBeenNthCalledWith(
+      1,
+      "room-1",
+      "placeholder-1",
+      "🛠️ Ich arbeite daran …\n🔎 Web Search: Markt"
+    );
+    // Second step is appended below the first — the user sees the history.
+    expect(client.updateMessage).toHaveBeenNthCalledWith(
+      2,
+      "room-1",
+      "placeholder-1",
+      "🛠️ Ich arbeite daran …\n🔎 Web Search: Markt\n📖 Read: docs/markt.md"
+    );
+    // The final answer replaces the progress view entirely.
+    expect(client.updateMessage).toHaveBeenNthCalledWith(
+      3,
+      "room-1",
+      "placeholder-1",
+      "Analyse fertig."
     );
   });
 
@@ -151,7 +190,7 @@ describe("sendReplyLifecycle", () => {
       1,
       "room-1",
       "placeholder-1",
-      "🔧 Tool wird benutzt …"
+      "🛠️ Ich arbeite daran …"
     );
     expect(client.updateMessage).toHaveBeenNthCalledWith(
       2,
@@ -180,7 +219,7 @@ describe("sendReplyLifecycle", () => {
       1,
       "room-1",
       "placeholder-1",
-      "🔧 Tool wird benutzt …"
+      "🛠️ Ich arbeite daran …"
     );
     expect(client.updateMessage).toHaveBeenNthCalledWith(
       2,
@@ -205,12 +244,12 @@ describe("sendReplyLifecycle", () => {
       }
     });
 
-    // Tool stage still updates the placeholder once with "🔧 Tool wird benutzt …"
+    // Tool stage still updates the placeholder once with "🛠️ Ich arbeite daran …"
     expect(client.updateMessage).toHaveBeenCalledTimes(1);
     expect(client.updateMessage).toHaveBeenCalledWith(
       "room-1",
       "placeholder-1",
-      "🔧 Tool wird benutzt …"
+      "🛠️ Ich arbeite daran …"
     );
     // The empty-final stage deletes instead of leaving fallback text behind
     expect(client.deleteMessage).toHaveBeenCalledExactlyOnceWith(

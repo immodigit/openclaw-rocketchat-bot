@@ -1,4 +1,5 @@
 import {
+  createReplyProgressState,
   EMPTY_REPLY_FALLBACK,
   formatReplyFailure,
   formatReplyUpdate,
@@ -133,6 +134,12 @@ async function createReplySession(
   const messageId = await client.postMessage(roomId, THINKING_PLACEHOLDER, threadOptions);
   let finalUpdated = false;
 
+  // Rolling "what is the agent doing" state. The first tool update swaps
+  // the static "denke nach" placeholder for a live list of steps, so the
+  // user can follow how the agent is working — like Telegram's progress
+  // drafts. Reset is unnecessary: one state object lives per lifecycle.
+  const progress = createReplyProgressState();
+
   // Watchdog: if the agent never emits any update (crash, hang, lost
   // connection), the "⏳ Moment …" placeholder would otherwise sit in
   // the channel forever. Walk through WATCHDOG_STAGES (60s/5m/15m) and
@@ -192,7 +199,7 @@ async function createReplySession(
       if (kind === "final") {
         finalUpdated = true;
       }
-      const text = formatReplyUpdate(kind, payload);
+      const text = formatReplyUpdate(kind, payload, progress);
       // When the agent produces nothing meaningful for the final reply
       // (no text and no attachment), prefer silently removing the
       // placeholder over leaving "(no reply generated)" noise in the

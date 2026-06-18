@@ -185,6 +185,33 @@ export class RocketChatClient {
     return getString(message, "_id");
   }
 
+  /**
+   * Resolve a send target to a canonical roomId. A bare roomId is returned
+   * unchanged; a channel name or `#name` slug is looked up via `rooms.info`.
+   *
+   * Best-effort: if the lookup throws or returns nothing (already an id, no
+   * permission, unknown name) the trimmed input is returned so the caller can
+   * still attempt the post. This keeps the thread-anchor lookup (cached under
+   * the inbound roomId) and the post target on the same id, so a reply
+   * addressed by channel name stays in its thread instead of the channel root.
+   */
+  async resolveRoomId(target: string): Promise<string> {
+    const raw = target.trim().replace(/^#/, "");
+    if (!raw) return target;
+    try {
+      await this.initialize();
+      const url = new URL("/api/v1/rooms.info", this.serverUrl);
+      url.searchParams.set("roomName", raw);
+      const payload = await this.requestJson(url, { method: "GET" });
+      const room = asObject(payload.room);
+      const id = getString(room, "_id");
+      if (id) return id;
+    } catch {
+      // best-effort: fall through to the raw target
+    }
+    return raw;
+  }
+
   async updateMessage(roomId: string, messageId: string, text: string): Promise<void> {
     await this.initialize();
     await this.requestJson(new URL("/api/v1/chat.update", this.serverUrl), {

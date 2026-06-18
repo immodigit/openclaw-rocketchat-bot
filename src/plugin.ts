@@ -168,7 +168,7 @@ export const rocketchatPlugin = {
         mediaDir: attachmentMediaDir()
       });
       await client.initialize();
-      const target = params.to
+      const rawTarget = params.to
         .trim()
         .replace(/^rocketchat:(?:channel:|user:)?/i, "")
         .replace(/^channel:/i, "");
@@ -176,9 +176,23 @@ export const rocketchatPlugin = {
       // Compute the thread anchor. Caller-supplied replyToId wins;
       // otherwise consult the per-room cache populated by onEvent
       // (so tool-based sends that lack inbound context still thread).
+      //
+      // The anchor is cached under the inbound roomId, but agents often
+      // address the channel by name/slug. When the raw target misses the
+      // cache we resolve it to its canonical roomId and retry — otherwise a
+      // name-addressed reply would silently detach to the channel root
+      // instead of staying in the thread it was triggered from.
+      let target = rawTarget;
       let tmid = params.replyToId;
       if (!tmid && account.forceThread !== false) {
-        const anchor = getInboundAnchor(target);
+        let anchor = getInboundAnchor(rawTarget);
+        if (!anchor) {
+          const resolved = await client.resolveRoomId(rawTarget);
+          if (resolved && resolved !== rawTarget) {
+            target = resolved;
+            anchor = getInboundAnchor(resolved);
+          }
+        }
         if (anchor) {
           tmid = anchor.tmid ?? anchor.messageId;
         }

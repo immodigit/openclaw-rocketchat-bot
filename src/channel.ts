@@ -66,6 +66,14 @@ type ReplySession = {
   messageId: string;
   update(params: { kind: ReplyStageKind; payload: ReplyStagePayload }): Promise<void>;
   hasFinalUpdate(): boolean;
+  /**
+   * The last meaningful prose the agent produced (a `block` or `final`
+   * update carrying real text). Used to salvage a closing reply when the
+   * run ends without a clean final — otherwise a trailing tool update
+   * would freeze the message on a rolling progress/failure stub even
+   * though the agent already said something useful one step earlier.
+   */
+  lastMeaningfulText(): string | undefined;
   fail(error: unknown): Promise<void>;
 };
 
@@ -100,9 +108,15 @@ export async function sendReplyLifecycle(
     if (typeof options.run === "function") {
       await options.run(session);
       if (!session.hasFinalUpdate()) {
+        // The run ended without a clean final delivery. Don't leave the
+        // message frozen on a rolling tool/failure stub: if the agent
+        // produced real prose one step earlier (a block), promote it as
+        // the closing reply. Only when there's nothing to salvage do we
+        // fall back to the empty-final behaviour (delete / "(no reply)").
+        const salvaged = session.lastMeaningfulText();
         await session.update({
           kind: "final",
-          payload: {}
+          payload: salvaged ? { text: salvaged } : {}
         });
       }
     } else {
@@ -133,6 +147,9 @@ async function createReplySession(
   const threadOptions = tmid ? { tmid } : undefined;
   const messageId = await client.postMessage(roomId, THINKING_PLACEHOLDER, threadOptions);
   let finalUpdated = false;
+  // Last real prose the agent emitted (block/final with text). Lets the
+  // lifecycle salvage a closing reply if the run ends on a tool stub.
+  let lastMeaningful: string | undefined;
 
   // Rolling "what is the agent doing" state. The first tool update swaps
   // the static "denke nach" placeholder for a live list of steps, so the
@@ -199,6 +216,13 @@ async function createReplySession(
       if (kind === "final") {
         finalUpdated = true;
       }
+      // Remember the agent's real prose so a later tool stub can't bury it.
+      if (kind === "block" || kind === "final") {
+        const prose = payload.text?.trim();
+        if (prose) {
+          lastMeaningful = prose;
+        }
+      }
       const text = formatReplyUpdate(kind, payload, progress);
       // When the agent produces nothing meaningful for the final reply
       // (no text and no attachment), prefer silently removing the
@@ -236,6 +260,7 @@ async function createReplySession(
       }
     },
     hasFinalUpdate: () => finalUpdated,
+    lastMeaningfulText: () => lastMeaningful,
     fail: async (_error) => {
       stopWatchdog();
       await client.updateMessage(roomId, messageId, formatReplyFailure());

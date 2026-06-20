@@ -229,6 +229,35 @@ describe("sendReplyLifecycle", () => {
     );
   });
 
+  it("salvages the last block prose as the closing reply when the run ends on a trailing tool stub", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      deleteMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      run: async (session) => {
+        // Agent fails a tool, then reports success as prose, then runs one
+        // more tool — and the run ends without a clean final delivery.
+        await session.update({ kind: "tool", payload: { text: "🛠️ pip install … failed" } });
+        await session.update({ kind: "block", payload: { text: "✅ Fertig — 332 Posts in der KB." } });
+        await session.update({ kind: "tool", payload: { text: "📦 git push" } });
+      }
+    });
+
+    // There IS prose to salvage, so we must not delete the message.
+    expect(client.deleteMessage).not.toHaveBeenCalled();
+    // The closing update restores the agent's real prose, not the tool stub.
+    expect(client.updateMessage.mock.calls.at(-1)).toEqual([
+      "room-1",
+      "placeholder-1",
+      "✅ Fertig — 332 Posts in der KB."
+    ]);
+  });
+
   it("deletes the placeholder instead of leaving an empty-reply fallback when the client supports deleteMessage", async () => {
     const client = {
       postMessage: vi.fn().mockResolvedValue("placeholder-1"),

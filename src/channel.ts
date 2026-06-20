@@ -3,6 +3,9 @@ import {
   EMPTY_REPLY_FALLBACK,
   formatReplyFailure,
   formatReplyUpdate,
+  REACTION_DONE,
+  REACTION_FAILED,
+  REACTION_STUCK,
   THINKING_PLACEHOLDER,
   WATCHDOG_STAGES
 } from "./format.js";
@@ -25,6 +28,12 @@ type ReplyClient = {
    * fallback text.
    */
   deleteMessage?(roomId: string, messageId: string): Promise<void>;
+  /**
+   * Optional. Stamp a status reaction on the user's trigger message
+   * (✅ done / ❌ failed / ⚠️ stuck). Best-effort — implementations
+   * swallow their own errors so a failed reaction never breaks the reply.
+   */
+  reactMessage?(messageId: string, emoji: string): Promise<void>;
   uploadAttachment?(
     roomId: string,
     filePath: string,
@@ -42,6 +51,12 @@ type SendReplyLifecycleOptions = {
    * thread replies on top of this message id.
    */
   tmid?: string;
+  /**
+   * The user's trigger message id. When set (and the client supports
+   * reactions), the lifecycle stamps it with a status reaction:
+   * ✅ on success, ❌ on error, ⚠️ when the watchdog gives up.
+   */
+  triggerMessageId?: string;
 } & (
   | {
       finalText: string;
@@ -102,7 +117,24 @@ export function shouldHandleInboundEvent(
 export async function sendReplyLifecycle(
   options: SendReplyLifecycleOptions
 ): Promise<string> {
-  const session = await createReplySession(options.client, options.roomId, options.tmid);
+  const session = await createReplySession(
+    options.client,
+    options.roomId,
+    options.tmid,
+    options.triggerMessageId
+  );
+
+  const react = async (emoji: string): Promise<void> => {
+    if (options.triggerMessageId && options.client.reactMessage) {
+      // reactMessage is best-effort and swallows its own errors, but guard
+      // anyway so a status reaction can never break the reply path.
+      try {
+        await options.client.reactMessage(options.triggerMessageId, emoji);
+      } catch {
+        /* ignore — status reactions are non-critical */
+      }
+    }
+  };
 
   try {
     if (typeof options.run === "function") {
@@ -129,8 +161,12 @@ export async function sendReplyLifecycle(
     }
   } catch (error) {
     await session.fail(error);
+    await react(REACTION_FAILED);
     throw error;
   }
+
+  // Task finished cleanly — stamp the trigger message with ✅.
+  await react(REACTION_DONE);
 
   return session.messageId;
 }
@@ -142,7 +178,8 @@ function normalizeMention(value: string): string {
 async function createReplySession(
   client: ReplyClient,
   roomId: string,
-  tmid: string | undefined
+  tmid: string | undefined,
+  triggerMessageId?: string
 ): Promise<ReplySession> {
   const threadOptions = tmid ? { tmid } : undefined;
   const messageId = await client.postMessage(roomId, THINKING_PLACEHOLDER, threadOptions);
@@ -193,6 +230,14 @@ async function createReplySession(
         // watchdog. The next tick or the agent's own update will retry.
       }
       if (stage.terminal) {
+        // The agent is considered dead/stuck — flag the trigger message.
+        if (triggerMessageId && client.reactMessage) {
+          try {
+            await client.reactMessage(triggerMessageId, REACTION_STUCK);
+          } catch {
+            /* ignore — status reactions are non-critical */
+          }
+        }
         stopWatchdog();
         return;
       }

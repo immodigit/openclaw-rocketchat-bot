@@ -319,6 +319,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           client,
           roomId: event.roomId,
           tmid: replyTmid ?? undefined,
+          // Stamp the user's trigger message with a status reaction
+          // (✅ done / ❌ failed / ⚠️ stuck) so the outcome is visible
+          // at a glance, independent of the reply body.
+          triggerMessageId: event.messageId,
           run: async (session) => {
             await dispatchInboundEventWithChannelRuntime({
               cfg: (ctx.cfg ?? {}) as OpenClawConfigLike,

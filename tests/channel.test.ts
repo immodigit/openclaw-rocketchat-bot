@@ -480,4 +480,89 @@ describe("sendReplyLifecycle", () => {
     expect(watchdogCalls).toEqual([]);
     vi.useRealTimers();
   });
+
+  it("reacts ✅ on the trigger message when the run completes", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      triggerMessageId: "trigger-1",
+      run: async (session) => {
+        await session.update({ kind: "final", payload: { text: "fertig" } });
+      }
+    });
+
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":white_check_mark:");
+  });
+
+  it("reacts ❌ on the trigger message when the run throws", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await expect(
+      sendReplyLifecycle({
+        client,
+        roomId: "room-1",
+        triggerMessageId: "trigger-1",
+        run: async () => {
+          throw new Error("boom");
+        }
+      })
+    ).rejects.toThrow("boom");
+
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":x:");
+  });
+
+  it("does not react when no trigger message id is provided", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      run: async (session) => {
+        await session.update({ kind: "final", payload: { text: "fertig" } });
+      }
+    });
+
+    expect(client.reactMessage).not.toHaveBeenCalled();
+  });
+
+  it("reacts ⚠️ on the trigger message when the watchdog gives up", async () => {
+    vi.useFakeTimers();
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    const lifecycle = sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      triggerMessageId: "trigger-1",
+      run: () => new Promise<void>((resolve) => setTimeout(resolve, 16 * 60 * 1000))
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    // Advance past the terminal watchdog stage (900s).
+    await vi.advanceTimersByTimeAsync(15 * 60 * 1000 + 1000);
+
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":warning:");
+
+    // Let the run resolve so the lifecycle settles.
+    await vi.advanceTimersByTimeAsync(60 * 1000);
+    await lifecycle;
+    vi.useRealTimers();
+  });
 });

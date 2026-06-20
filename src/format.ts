@@ -1,4 +1,13 @@
 export const THINKING_PLACEHOLDER = "⏳ Moment … (denke nach)";
+
+/**
+ * Status reactions stamped on the user's trigger message so the bot's
+ * outcome is visible at a glance, independent of the reply body:
+ * ✅ done, ❌ failed, ⚠️ stuck (watchdog gave up). Rocket.Chat shortcodes.
+ */
+export const REACTION_DONE = ":white_check_mark:";
+export const REACTION_FAILED = ":x:";
+export const REACTION_STUCK = ":warning:";
 export const EMPTY_REPLY_FALLBACK = "(no reply generated)";
 export const TOOL_REPLY_FALLBACK = "🔧 Tool wird benutzt …";
 export const BLOCK_REPLY_FALLBACK = "✍️ Antwort wird gebaut …";

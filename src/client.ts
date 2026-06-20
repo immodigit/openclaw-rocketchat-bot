@@ -321,6 +321,34 @@ export class RocketChatClient {
     });
   }
 
+  /**
+   * Add (or remove) an emoji reaction on a message. Used to stamp the
+   * user's trigger message with a glanceable status — ✅ done, ❌ failed,
+   * ⚠️ stuck — independent of the reply text. Best-effort: a failed
+   * reaction must never break the reply path, so errors are swallowed.
+   *
+   * `emoji` is a Rocket.Chat shortcode, e.g. `:white_check_mark:`.
+   */
+  async reactMessage(messageId: string, emoji: string, shouldReact = true): Promise<void> {
+    try {
+      await this.initialize();
+      await this.requestJson(new URL("/api/v1/chat.react", this.serverUrl), {
+        method: "POST",
+        body: JSON.stringify({
+          messageId,
+          emoji,
+          shouldReact
+        })
+      });
+    } catch (error) {
+      console.warn(
+        `[rocketchat] could not react ${emoji} on ${messageId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
   async downloadAttachmentToTempFile(
     url: string,
     options?: { fileName?: string }

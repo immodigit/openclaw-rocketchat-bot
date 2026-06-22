@@ -1,42 +1,61 @@
 export const THINKING_PLACEHOLDER = "⏳ Moment … (denke nach)";
 
 /**
- * Status reactions stamped on the user's trigger message so the bot's
- * outcome is visible at a glance, independent of the reply body:
- * ❓ open / in progress (default while the matter isn't truly closed),
- * ✅ done (only when the agent explicitly signals completion),
- * ❌ failed, ⚠️ stuck (watchdog gave up). Rocket.Chat shortcodes.
+ * Status reactions stamped on the user's trigger message so its state is
+ * visible at a glance, independent of the reply body:
+ * ⏳ working (set while we're handling the message),
+ * ✅ done (the whole matter is finished),
+ * ❓ needs your input / opinion / decision to proceed,
+ * ⚠️ something to look into (error, stuck, or an agent-flagged problem).
+ * Rocket.Chat shortcodes.
  *
- * The flow: ❓ goes on as soon as we start handling a message and stays
- * until the agent signals the task is REALLY done — answering once is not
- * enough. Only then does ❓ flip to ✅.
+ * The flow: ⏳ goes on as soon as we start handling a message; at the end it
+ * is replaced by exactly one terminal state. The terminal state comes from
+ * the agent (markers below) — answering once is NOT automatically ✅.
  */
-export const REACTION_OPEN = ":question:";
+export const REACTION_WORKING = ":hourglass_flowing_sand:";
 export const REACTION_DONE = ":white_check_mark:";
-export const REACTION_FAILED = ":x:";
-export const REACTION_STUCK = ":warning:";
+export const REACTION_INPUT = ":question:";
+export const REACTION_ATTENTION = ":warning:";
+
+export type ReplyOutcome = "done" | "input" | "attention";
 
 /**
- * Machine marker an agent appends to its closing message when the task is
- * truly finished and needs no further action/answer (e.g. `[[ERLEDIGT]]`).
- * It is stripped from the rendered message; its presence flips ❓ → ✅.
- * Matches `[[erledigt]]` / `[[done]]` / `[[fertig]]`, case-insensitive.
+ * Machine markers an agent appends to its closing message to declare the
+ * outcome. They are stripped from the rendered text. Checked in priority
+ * order (attention beats input beats done) so the most important signal
+ * wins if more than one slips in:
+ *   [[ERLEDIGT]] / [[DONE]] / [[FERTIG]]            → ✅ done
+ *   [[FRAGE]]    / [[INPUT]] / [[ENTSCHEIDUNG]]     → ❓ needs your input
+ *   [[ACHTUNG]]  / [[PROBLEM]] / [[FEHLER]]         → ⚠️ look into this
  */
-const DONE_SENTINEL = /\[\[\s*(?:erledigt|done|fertig)\s*\]\]/gi;
+const SIGNAL_PATTERNS: { state: ReplyOutcome; re: RegExp }[] = [
+  { state: "attention", re: /\[\[\s*(?:achtung|problem|fehler)\s*\]\]/gi },
+  { state: "input", re: /\[\[\s*(?:frage|input|entscheidung)\s*\]\]/gi },
+  { state: "done", re: /\[\[\s*(?:erledigt|done|fertig)\s*\]\]/gi }
+];
 
-export function extractDoneSignal(text: string | undefined): {
-  done: boolean;
+export function extractStatusSignal(text: string | undefined): {
+  state: ReplyOutcome | undefined;
   text: string;
 } {
-  const source = text ?? "";
-  const done = DONE_SENTINEL.test(source);
-  DONE_SENTINEL.lastIndex = 0; // stateful /g regex — reset before reuse
-  const cleaned = source
-    .replace(DONE_SENTINEL, "")
+  let cleaned = text ?? "";
+  let state: ReplyOutcome | undefined;
+  for (const { state: candidate, re } of SIGNAL_PATTERNS) {
+    re.lastIndex = 0;
+    if (re.test(cleaned)) {
+      if (!state) {
+        state = candidate; // priority order: first match wins
+      }
+      re.lastIndex = 0;
+      cleaned = cleaned.replace(re, "");
+    }
+  }
+  cleaned = cleaned
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { done, text: cleaned };
+  return { state, text: cleaned };
 }
 export const EMPTY_REPLY_FALLBACK = "(no reply generated)";
 export const TOOL_REPLY_FALLBACK = "🔧 Tool wird benutzt …";

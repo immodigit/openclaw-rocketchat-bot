@@ -1,13 +1,14 @@
 import {
   createReplyProgressState,
   EMPTY_REPLY_FALLBACK,
-  extractDoneSignal,
+  extractStatusSignal,
   formatReplyFailure,
   formatReplyUpdate,
+  REACTION_ATTENTION,
   REACTION_DONE,
-  REACTION_FAILED,
-  REACTION_OPEN,
-  REACTION_STUCK,
+  REACTION_INPUT,
+  REACTION_WORKING,
+  type ReplyOutcome,
   THINKING_PLACEHOLDER,
   WATCHDOG_STAGES
 } from "./format.js";
@@ -93,12 +94,12 @@ type ReplySession = {
    */
   lastMeaningfulText(): string | undefined;
   /**
-   * True once the agent has signalled the task is REALLY finished (via the
-   * done sentinel in a block/final message). Answering once is not enough —
-   * this stays false until that explicit signal, so the trigger reaction
-   * stays ❓ instead of flipping to ✅.
+   * The terminal outcome the agent signalled (via a status marker in a
+   * block/final message): "done" → ✅, "input" → ❓, "attention" → ⚠️.
+   * `undefined` means the agent gave no signal — answering once is not a
+   * terminal state, so we just clear the ⏳ without a verdict.
    */
-  isTaskDone(): boolean;
+  outcome(): ReplyOutcome | undefined;
   fail(error: unknown): Promise<void>;
 };
 
@@ -146,9 +147,9 @@ export async function sendReplyLifecycle(
     }
   };
 
-  // Stamp the matter as open/in-progress straight away — it stays ❓ until
-  // the agent explicitly signals the task is really finished.
-  await react(REACTION_OPEN);
+  // Stamp ⏳ (working) straight away; it's replaced by a terminal state once
+  // the turn ends.
+  await react(REACTION_WORKING);
 
   try {
     if (typeof options.run === "function") {
@@ -175,17 +176,26 @@ export async function sendReplyLifecycle(
     }
   } catch (error) {
     await session.fail(error);
-    await react(REACTION_OPEN, false);
-    await react(REACTION_FAILED);
+    await react(REACTION_WORKING, false);
+    await react(REACTION_ATTENTION);
     throw error;
   }
 
-  // Only flip ❓ → ✅ when the agent signalled the task is REALLY done.
-  // Answering once does not close the matter — without the signal the
-  // trigger message stays ❓ (open / awaiting).
-  if (session.isTaskDone()) {
-    await react(REACTION_OPEN, false);
-    await react(REACTION_DONE);
+  // Clear ⏳ and apply the agent's terminal signal:
+  //   done → ✅ · needs your input → ❓ · problem → ⚠️
+  // No signal → just clear ⏳ (answering once is not a terminal verdict).
+  await react(REACTION_WORKING, false);
+  const state = session.outcome();
+  const verdict =
+    state === "done"
+      ? REACTION_DONE
+      : state === "input"
+        ? REACTION_INPUT
+        : state === "attention"
+          ? REACTION_ATTENTION
+          : undefined;
+  if (verdict) {
+    await react(verdict);
   }
 
   return session.messageId;
@@ -207,9 +217,9 @@ async function createReplySession(
   // Last real prose the agent emitted (block/final with text). Lets the
   // lifecycle salvage a closing reply if the run ends on a tool stub.
   let lastMeaningful: string | undefined;
-  // Flips true once the agent signals the task is REALLY done (done
-  // sentinel). Controls whether the trigger reaction becomes ✅ or stays ❓.
-  let taskDone = false;
+  // Terminal outcome the agent signalled via a status marker (done / input /
+  // attention). Drives which reaction replaces the ⏳ at the end.
+  let outcome: ReplyOutcome | undefined;
 
   // Rolling "what is the agent doing" state. The first tool update swaps
   // the static "denke nach" placeholder for a live list of steps, so the
@@ -253,11 +263,11 @@ async function createReplySession(
         // watchdog. The next tick or the agent's own update will retry.
       }
       if (stage.terminal) {
-        // The agent is considered dead/stuck — swap the open ❓ for ⚠️.
+        // The agent is considered dead/stuck — swap the ⏳ for ⚠️.
         if (triggerMessageId && client.reactMessage) {
           try {
-            await client.reactMessage(triggerMessageId, REACTION_OPEN, false);
-            await client.reactMessage(triggerMessageId, REACTION_STUCK, true);
+            await client.reactMessage(triggerMessageId, REACTION_WORKING, false);
+            await client.reactMessage(triggerMessageId, REACTION_ATTENTION, true);
           } catch {
             /* ignore — status reactions are non-critical */
           }
@@ -286,13 +296,13 @@ async function createReplySession(
         finalUpdated = true;
       }
       let effectivePayload = payload;
-      // For prose updates: detect + strip the done sentinel (its presence
-      // means the agent considers the task truly finished → ✅), and
-      // remember the cleaned prose so a later tool stub can't bury it.
+      // For prose updates: detect + strip the status marker (done / input /
+      // attention) and remember the cleaned prose so a later tool stub can't
+      // bury it. The latest signalled state wins (the final word counts).
       if ((kind === "block" || kind === "final") && payload.text) {
-        const { done, text: cleaned } = extractDoneSignal(payload.text);
-        if (done) {
-          taskDone = true;
+        const { state, text: cleaned } = extractStatusSignal(payload.text);
+        if (state) {
+          outcome = state;
         }
         effectivePayload = { ...payload, text: cleaned };
         const prose = cleaned.trim();
@@ -338,7 +348,7 @@ async function createReplySession(
     },
     hasFinalUpdate: () => finalUpdated,
     lastMeaningfulText: () => lastMeaningful,
-    isTaskDone: () => taskDone,
+    outcome: () => outcome,
     fail: async (_error) => {
       stopWatchdog();
       await client.updateMessage(roomId, messageId, formatReplyFailure());

@@ -3,11 +3,41 @@ export const THINKING_PLACEHOLDER = "⏳ Moment … (denke nach)";
 /**
  * Status reactions stamped on the user's trigger message so the bot's
  * outcome is visible at a glance, independent of the reply body:
- * ✅ done, ❌ failed, ⚠️ stuck (watchdog gave up). Rocket.Chat shortcodes.
+ * ❓ open / in progress (default while the matter isn't truly closed),
+ * ✅ done (only when the agent explicitly signals completion),
+ * ❌ failed, ⚠️ stuck (watchdog gave up). Rocket.Chat shortcodes.
+ *
+ * The flow: ❓ goes on as soon as we start handling a message and stays
+ * until the agent signals the task is REALLY done — answering once is not
+ * enough. Only then does ❓ flip to ✅.
  */
+export const REACTION_OPEN = ":question:";
 export const REACTION_DONE = ":white_check_mark:";
 export const REACTION_FAILED = ":x:";
 export const REACTION_STUCK = ":warning:";
+
+/**
+ * Machine marker an agent appends to its closing message when the task is
+ * truly finished and needs no further action/answer (e.g. `[[ERLEDIGT]]`).
+ * It is stripped from the rendered message; its presence flips ❓ → ✅.
+ * Matches `[[erledigt]]` / `[[done]]` / `[[fertig]]`, case-insensitive.
+ */
+const DONE_SENTINEL = /\[\[\s*(?:erledigt|done|fertig)\s*\]\]/gi;
+
+export function extractDoneSignal(text: string | undefined): {
+  done: boolean;
+  text: string;
+} {
+  const source = text ?? "";
+  const done = DONE_SENTINEL.test(source);
+  DONE_SENTINEL.lastIndex = 0; // stateful /g regex — reset before reuse
+  const cleaned = source
+    .replace(DONE_SENTINEL, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return { done, text: cleaned };
+}
 export const EMPTY_REPLY_FALLBACK = "(no reply generated)";
 export const TOOL_REPLY_FALLBACK = "🔧 Tool wird benutzt …";
 export const BLOCK_REPLY_FALLBACK = "✍️ Antwort wird gebaut …";

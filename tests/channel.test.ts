@@ -481,7 +481,7 @@ describe("sendReplyLifecycle", () => {
     vi.useRealTimers();
   });
 
-  it("reacts ✅ on the trigger message when the run completes", async () => {
+  it("marks the trigger ❓ (open) and stays open when the agent does not signal done", async () => {
     const client = {
       postMessage: vi.fn().mockResolvedValue("placeholder-1"),
       updateMessage: vi.fn().mockResolvedValue(undefined),
@@ -493,11 +493,46 @@ describe("sendReplyLifecycle", () => {
       roomId: "room-1",
       triggerMessageId: "trigger-1",
       run: async (session) => {
-        await session.update({ kind: "final", payload: { text: "fertig" } });
+        // Answers once, but never signals the task is truly finished.
+        await session.update({ kind: "final", payload: { text: "Hier der Zwischenstand …" } });
       }
     });
 
-    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":white_check_mark:");
+    // ❓ goes on at the start …
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":question:", true);
+    // … and is never flipped to ✅ (the matter is still open).
+    expect(client.reactMessage).not.toHaveBeenCalledWith("trigger-1", ":white_check_mark:", true);
+  });
+
+  it("flips ❓ → ✅ and strips the sentinel when the agent signals the task is really done", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      triggerMessageId: "trigger-1",
+      run: async (session) => {
+        await session.update({
+          kind: "final",
+          payload: { text: "✅ Reel 8 gepostet, Status auf POSTED. [[ERLEDIGT]]" }
+        });
+      }
+    });
+
+    // Open marker added, then removed, then ✅ added.
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":question:", true);
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":question:", false);
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":white_check_mark:", true);
+    // The machine sentinel must not leak into the visible message.
+    expect(client.updateMessage.mock.calls.at(-1)).toEqual([
+      "room-1",
+      "placeholder-1",
+      "✅ Reel 8 gepostet, Status auf POSTED."
+    ]);
   });
 
   it("reacts ❌ on the trigger message when the run throws", async () => {
@@ -518,7 +553,7 @@ describe("sendReplyLifecycle", () => {
       })
     ).rejects.toThrow("boom");
 
-    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":x:");
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":x:", true);
   });
 
   it("does not react when no trigger message id is provided", async () => {
@@ -558,7 +593,7 @@ describe("sendReplyLifecycle", () => {
     // Advance past the terminal watchdog stage (900s).
     await vi.advanceTimersByTimeAsync(15 * 60 * 1000 + 1000);
 
-    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":warning:");
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":warning:", true);
 
     // Let the run resolve so the lifecycle settles.
     await vi.advanceTimersByTimeAsync(60 * 1000);

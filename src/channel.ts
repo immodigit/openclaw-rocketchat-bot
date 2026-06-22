@@ -1,10 +1,12 @@
 import {
   createReplyProgressState,
   EMPTY_REPLY_FALLBACK,
+  extractDoneSignal,
   formatReplyFailure,
   formatReplyUpdate,
   REACTION_DONE,
   REACTION_FAILED,
+  REACTION_OPEN,
   REACTION_STUCK,
   THINKING_PLACEHOLDER,
   WATCHDOG_STAGES
@@ -29,11 +31,12 @@ type ReplyClient = {
    */
   deleteMessage?(roomId: string, messageId: string): Promise<void>;
   /**
-   * Optional. Stamp a status reaction on the user's trigger message
-   * (✅ done / ❌ failed / ⚠️ stuck). Best-effort — implementations
-   * swallow their own errors so a failed reaction never breaks the reply.
+   * Optional. Add or remove a status reaction on the user's trigger
+   * message (❓ open / ✅ done / ❌ failed / ⚠️ stuck). `shouldReact: false`
+   * removes the reaction. Best-effort — implementations swallow their own
+   * errors so a failed reaction never breaks the reply.
    */
-  reactMessage?(messageId: string, emoji: string): Promise<void>;
+  reactMessage?(messageId: string, emoji: string, shouldReact?: boolean): Promise<void>;
   uploadAttachment?(
     roomId: string,
     filePath: string,
@@ -89,6 +92,13 @@ type ReplySession = {
    * though the agent already said something useful one step earlier.
    */
   lastMeaningfulText(): string | undefined;
+  /**
+   * True once the agent has signalled the task is REALLY finished (via the
+   * done sentinel in a block/final message). Answering once is not enough —
+   * this stays false until that explicit signal, so the trigger reaction
+   * stays ❓ instead of flipping to ✅.
+   */
+  isTaskDone(): boolean;
   fail(error: unknown): Promise<void>;
 };
 
@@ -124,17 +134,21 @@ export async function sendReplyLifecycle(
     options.triggerMessageId
   );
 
-  const react = async (emoji: string): Promise<void> => {
+  const react = async (emoji: string, shouldReact = true): Promise<void> => {
     if (options.triggerMessageId && options.client.reactMessage) {
       // reactMessage is best-effort and swallows its own errors, but guard
       // anyway so a status reaction can never break the reply path.
       try {
-        await options.client.reactMessage(options.triggerMessageId, emoji);
+        await options.client.reactMessage(options.triggerMessageId, emoji, shouldReact);
       } catch {
         /* ignore — status reactions are non-critical */
       }
     }
   };
+
+  // Stamp the matter as open/in-progress straight away — it stays ❓ until
+  // the agent explicitly signals the task is really finished.
+  await react(REACTION_OPEN);
 
   try {
     if (typeof options.run === "function") {
@@ -161,12 +175,18 @@ export async function sendReplyLifecycle(
     }
   } catch (error) {
     await session.fail(error);
+    await react(REACTION_OPEN, false);
     await react(REACTION_FAILED);
     throw error;
   }
 
-  // Task finished cleanly — stamp the trigger message with ✅.
-  await react(REACTION_DONE);
+  // Only flip ❓ → ✅ when the agent signalled the task is REALLY done.
+  // Answering once does not close the matter — without the signal the
+  // trigger message stays ❓ (open / awaiting).
+  if (session.isTaskDone()) {
+    await react(REACTION_OPEN, false);
+    await react(REACTION_DONE);
+  }
 
   return session.messageId;
 }
@@ -187,6 +207,9 @@ async function createReplySession(
   // Last real prose the agent emitted (block/final with text). Lets the
   // lifecycle salvage a closing reply if the run ends on a tool stub.
   let lastMeaningful: string | undefined;
+  // Flips true once the agent signals the task is REALLY done (done
+  // sentinel). Controls whether the trigger reaction becomes ✅ or stays ❓.
+  let taskDone = false;
 
   // Rolling "what is the agent doing" state. The first tool update swaps
   // the static "denke nach" placeholder for a live list of steps, so the
@@ -230,10 +253,11 @@ async function createReplySession(
         // watchdog. The next tick or the agent's own update will retry.
       }
       if (stage.terminal) {
-        // The agent is considered dead/stuck — flag the trigger message.
+        // The agent is considered dead/stuck — swap the open ❓ for ⚠️.
         if (triggerMessageId && client.reactMessage) {
           try {
-            await client.reactMessage(triggerMessageId, REACTION_STUCK);
+            await client.reactMessage(triggerMessageId, REACTION_OPEN, false);
+            await client.reactMessage(triggerMessageId, REACTION_STUCK, true);
           } catch {
             /* ignore — status reactions are non-critical */
           }
@@ -261,14 +285,22 @@ async function createReplySession(
       if (kind === "final") {
         finalUpdated = true;
       }
-      // Remember the agent's real prose so a later tool stub can't bury it.
-      if (kind === "block" || kind === "final") {
-        const prose = payload.text?.trim();
+      let effectivePayload = payload;
+      // For prose updates: detect + strip the done sentinel (its presence
+      // means the agent considers the task truly finished → ✅), and
+      // remember the cleaned prose so a later tool stub can't bury it.
+      if ((kind === "block" || kind === "final") && payload.text) {
+        const { done, text: cleaned } = extractDoneSignal(payload.text);
+        if (done) {
+          taskDone = true;
+        }
+        effectivePayload = { ...payload, text: cleaned };
+        const prose = cleaned.trim();
         if (prose) {
           lastMeaningful = prose;
         }
       }
-      const text = formatReplyUpdate(kind, payload, progress);
+      const text = formatReplyUpdate(kind, effectivePayload, progress);
       // When the agent produces nothing meaningful for the final reply
       // (no text and no attachment), prefer silently removing the
       // placeholder over leaving "(no reply generated)" noise in the
@@ -295,17 +327,18 @@ async function createReplySession(
         }
       }
       await client.updateMessage(roomId, messageId, text);
-      if (kind === "final" && payload.attachmentPath && client.uploadAttachment) {
+      if (kind === "final" && effectivePayload.attachmentPath && client.uploadAttachment) {
         await client.uploadAttachment(
           roomId,
-          payload.attachmentPath,
-          payload.text?.trim() || undefined,
+          effectivePayload.attachmentPath,
+          effectivePayload.text?.trim() || undefined,
           threadOptions
         );
       }
     },
     hasFinalUpdate: () => finalUpdated,
     lastMeaningfulText: () => lastMeaningful,
+    isTaskDone: () => taskDone,
     fail: async (_error) => {
       stopWatchdog();
       await client.updateMessage(roomId, messageId, formatReplyFailure());

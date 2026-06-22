@@ -285,4 +285,56 @@ describe("startGateway", () => {
     abortController.abort();
     await startPromise;
   });
+
+  it("clears the inbound thread-anchor after handling a message so later outbound posts to root", async () => {
+    initialize.mockResolvedValue({ userId: "bot-user", username: "marco" });
+    safePollOnce.mockResolvedValue(undefined);
+    start.mockResolvedValue(undefined);
+    stop.mockResolvedValue(undefined);
+
+    const { startGateway } = await import("../src/plugin.js");
+    const { getInboundAnchor } = await import("../src/inbound-state.js");
+
+    const abortController = new AbortController();
+    // channelRuntime just needs to be truthy: sendReplyLifecycle is mocked,
+    // so its `run` callback never executes — we only assert the anchor is
+    // cleared once onEvent has handled the message.
+    const startPromise = startGateway({
+      accountId: "main",
+      account: {
+        accountId: "main",
+        enabled: true,
+        serverUrl: "http://chat.example.com",
+        auth: { mode: "token", userId: "bot-user", accessToken: "token" },
+        transport: { mode: "polling", pollIntervalMs: 15_000 },
+        mentionNames: [],
+        forceThread: true
+      },
+      channelRuntime: {},
+      abortSignal: abortController.signal
+    } as never).catch(() => undefined);
+
+    await pollingTransportOptions?.onEvent?.({
+      accountId: "main",
+      roomId: "room-anchor",
+      roomType: "direct",
+      messageId: "trigger-9",
+      tmid: null,
+      senderId: "user-1",
+      senderName: "Alice",
+      text: "do the thing",
+      mentions: [],
+      attachments: [],
+      sentAt: "2026-03-26T10:01:00.000Z",
+      raw: {}
+    });
+
+    // The per-room anchor must be gone now: a later cron/autonomous send to
+    // this room should fall back to the channel root, not thread onto this
+    // (now-handled) trigger message.
+    expect(getInboundAnchor("room-anchor")).toBeUndefined();
+
+    abortController.abort();
+    await startPromise;
+  });
 });

@@ -20,7 +20,7 @@ import {
   type ChannelRuntimeLike,
   type OpenClawConfigLike
 } from "./inbound-dispatch.js";
-import { getInboundAnchor, recordInboundAnchor } from "./inbound-state.js";
+import { clearInboundAnchor, getInboundAnchor, recordInboundAnchor } from "./inbound-state.js";
 
 export type ResolvedAccount = PluginAccountConfig & {
   accountId: string;
@@ -315,6 +315,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const replyTmid = forceThread
           ? event.tmid ?? event.messageId
           : event.tmid ?? undefined;
+        try {
         await sendReplyLifecycle({
           client,
           roomId: event.roomId,
@@ -360,6 +361,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             });
           }
         });
+        } finally {
+          // Scope the inbound thread-anchor to this turn. Once we've handled
+          // the message, drop it so that later cron / autonomous outbound to
+          // this room posts to the channel root instead of threading onto a
+          // stale user message (which turned the last @mention into a magnet
+          // for every unrelated cron report).
+          clearInboundAnchor(event.roomId);
+        }
         return;
       }
 

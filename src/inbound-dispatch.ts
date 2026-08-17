@@ -233,6 +233,11 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
     ConversationLabel: buildConversationLabel(params.event),
     GroupSubject: params.event.roomType === "direct" ? undefined : params.event.roomId,
     SenderId: params.event.senderId,
+    // Rocket.Chat messages handled by this plugin are explicit user turns,
+    // including mentions in channels. OpenClaw 1.60 otherwise promotes
+    // external channel traffic to `room_event`, whose strict
+    // message-tool-only policy suppresses the plugin-owned reply lifecycle.
+    InboundEventKind: "user_request",
     Provider: "rocketchat",
     Surface: "rocketchat",
     MessageSid: params.event.messageId,

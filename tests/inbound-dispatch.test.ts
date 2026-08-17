@@ -85,6 +85,11 @@ describe("dispatchInboundEventWithChannelRuntime", () => {
       }
     });
     expect(recordInboundSession).toHaveBeenCalledTimes(1);
+    expect(finalizeInboundContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        InboundEventKind: "user_request"
+      })
+    );
     expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
     expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
       expect.objectContaining({

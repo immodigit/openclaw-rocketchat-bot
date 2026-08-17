@@ -86,6 +86,13 @@ describe("dispatchInboundEventWithChannelRuntime", () => {
     });
     expect(recordInboundSession).toHaveBeenCalledTimes(1);
     expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
+    expect(dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        replyOptions: {
+          sourceReplyDeliveryMode: "automatic"
+        }
+      })
+    );
     expect(deliver).toHaveBeenCalledWith({
       text: "收到"
     }, { kind: "final" });

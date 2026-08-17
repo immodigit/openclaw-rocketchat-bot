@@ -131,6 +131,9 @@ export type ChannelRuntimeLike = {
         deliver(payload: unknown, info: { kind: "tool" | "block" | "final" }): Promise<void>;
         onError?(err: unknown, info: { kind: "tool" | "block" | "final" }): void;
       };
+      replyOptions?: {
+        sourceReplyDeliveryMode?: "automatic" | "message_tool_only";
+      };
     }): Promise<unknown>;
   };
 };
@@ -262,6 +265,14 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
           await params.deliver(normalizeOutboundReplyPayload(payload), info);
         },
         onError: params.onDispatchError
+      },
+      // OpenClaw 2026.6 defaults external group/channel turns to
+      // `message_tool_only`. Rocket.Chat owns a thread-anchored reply
+      // lifecycle, so automatic source delivery must stay enabled; otherwise
+      // the model posts through the generic message tool while our lifecycle
+      // is left with an empty "thinking" placeholder.
+      replyOptions: {
+        sourceReplyDeliveryMode: "automatic"
       }
     })
   );

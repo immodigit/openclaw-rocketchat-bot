@@ -422,6 +422,79 @@ describe("createWebSocketTransport", () => {
     expect(events).toHaveLength(1);
     expect(checkpointStore.markSeen).toHaveBeenCalledTimes(1);
   });
+
+  it("checkpoints a message whose onEvent throws so Rocket.Chat re-delivery cannot loop", async () => {
+    // Regression: a failing dispatch (e.g. "reply session initialization
+    // conflicted") used to skip markSeen while the finally block still
+    // released the inflight slot. Rocket.Chat re-emits `changed` frames for
+    // the same message, so every redelivery re-ran the agent pipeline and
+    // posted another failure placeholder — hundreds of them in one channel.
+    const socket = new FakeWebSocket();
+    const client = {
+      listSubscriptions: vi.fn().mockResolvedValue([{ rid: "room-f", t: "c" }])
+    };
+    const checkpointStore = createCheckpointStore();
+    const markSeen = vi.spyOn(checkpointStore, "markSeen");
+    const dispatchError = new Error("reply session initialization conflicted");
+    const onEvent = vi.fn().mockRejectedValue(dispatchError);
+    const onError = vi.fn();
+
+    const transport = createWebSocketTransport({
+      accountId: "main",
+      botUserId: "bot-user",
+      serverUrl: "https://chat.example.com",
+      userId: "bot-user",
+      authToken: "resume-token",
+      client,
+      checkpointStore,
+      onEvent,
+      onError,
+      websocketFactory: () => socket
+    });
+
+    const startPromise = transport.start();
+    socket.emitOpen();
+    socket.emitMessage({ msg: "connected", session: "session-1" });
+    socket.emitMessage({
+      msg: "result",
+      id: "login",
+      result: { id: "bot-user", token: "resume-token", type: "resume" }
+    });
+    await startPromise;
+
+    const frame = {
+      msg: "changed",
+      collection: "stream-room-messages",
+      fields: {
+        eventName: "room-f",
+        args: [
+          {
+            _id: "boom-1",
+            rid: "room-f",
+            msg: "@vera status?",
+            ts: "2026-08-19T13:35:00.000Z",
+            u: { _id: "user-1", username: "ferdinand", name: "Ferdinand" }
+          }
+        ]
+      }
+    };
+
+    socket.emitMessage(frame);
+    await flushAsync();
+
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(markSeen).toHaveBeenCalledWith("main", "boom-1");
+    expect(onError).toHaveBeenCalledWith(dispatchError);
+
+    // Rocket.Chat re-delivers the very same message.
+    socket.emitMessage(frame);
+    await flushAsync();
+    socket.emitMessage(frame);
+    await flushAsync();
+
+    expect(onEvent).toHaveBeenCalledTimes(1);
+  });
+
 });
 
 type Frame = Record<string, unknown>;

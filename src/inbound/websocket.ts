@@ -274,8 +274,13 @@ class RocketChatWebSocketTransport implements InboundTransport {
 
     try {
       await this.onEvent(event);
-      await this.checkpointStore.markSeen(this.accountId, messageId);
+    } catch (error) {
+      // A failed dispatch must not be retried by Rocket.Chat: the user has
+      // already been told the reply failed, and the redelivered `changed`
+      // frames would otherwise re-run the pipeline indefinitely.
+      await this.onError(error);
     } finally {
+      await this.checkpointStore.markSeen(this.accountId, messageId);
       this.inflightMessages.delete(messageId);
     }
   }

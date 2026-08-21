@@ -495,6 +495,73 @@ describe("createWebSocketTransport", () => {
     expect(onEvent).toHaveBeenCalledTimes(1);
   });
 
+  it("processes messages of the same room one after another", async () => {
+    // Ferdinand sent a request plus three attachments within one second.
+    // Every frame started its own turn on the same session key, OpenClaw
+    // answered with `reply session initialization conflicted`, and the
+    // finished reply of the real turn was never delivered. Turns of one
+    // room must therefore be serialized.
+    const running: string[] = [];
+    let maxConcurrent = 0;
+    const socket = new FakeWebSocket();
+    const client = {
+      listSubscriptions: vi.fn().mockResolvedValue([{ rid: "room-1", t: "c" }])
+    };
+
+    const transport = createWebSocketTransport({
+      accountId: "main",
+      botUserId: "bot-user",
+      serverUrl: "https://chat.example.com",
+      userId: "bot-user",
+      authToken: "resume-token",
+      client,
+      checkpointStore: createCheckpointStore(),
+      onEvent: async (event) => {
+        running.push(event.messageId);
+        maxConcurrent = Math.max(maxConcurrent, running.length);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        running.splice(running.indexOf(event.messageId), 1);
+      },
+      websocketFactory: () => socket
+    });
+
+    const startPromise = transport.start();
+    socket.emitOpen();
+    socket.emitMessage({ msg: "connected", session: "session-1" });
+    socket.emitMessage({
+      msg: "result",
+      id: "login",
+      result: { id: "bot-user", token: "resume-token", type: "resume" }
+    });
+    await startPromise;
+
+    const frame = (id: string) => ({
+      msg: "changed",
+      collection: "stream-room-messages",
+      fields: {
+        eventName: "room-1",
+        args: [
+          {
+            _id: id,
+            rid: "room-1",
+            msg: `text ${id}`,
+            ts: "2026-08-20T22:30:47.000Z",
+            u: { _id: "user-1", username: "ferdinand", name: "Ferdinand" }
+          }
+        ]
+      }
+    });
+
+    for (const id of ["m1", "m2", "m3", "m4"]) {
+      socket.emitMessage(frame(id));
+    }
+    await flushAsync();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await flushAsync();
+
+    expect(maxConcurrent).toBe(1);
+  });
+
 });
 
 type Frame = Record<string, unknown>;

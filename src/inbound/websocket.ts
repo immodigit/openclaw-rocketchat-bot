@@ -70,6 +70,21 @@ class RocketChatWebSocketTransport implements InboundTransport {
    * work happens.
    */
   private inflightMessages = new Set<string>();
+  /**
+   * One promise chain per room, so turns of the same conversation never
+   * overlap. Rocket.Chat delivers a separate frame per message, and a user
+   * who sends a request plus three attachments within one second produced
+   * four frames — each of which started its own turn against the *same*
+   * OpenClaw session key. The runtime rejected the losers with
+   * `reply session initialization conflicted`, the plugin posted a failure
+   * notice for every one of them, and the finished reply of the turn that
+   * did run was never delivered. From the outside that looks like a total
+   * outage while the agent worked correctly the whole time.
+   *
+   * Serializing per room keeps every message answered, in order, and costs
+   * only latency on bursts — different rooms still run in parallel.
+   */
+  private roomQueues = new Map<string, Promise<void>>();
 
   constructor(options: WebSocketTransportOptions) {
     this.accountId = options.accountId;
@@ -272,17 +287,19 @@ class RocketChatWebSocketTransport implements InboundTransport {
       rid: roomId
     }, this.serverUrl);
 
-    try {
-      await this.onEvent(event);
-    } catch (error) {
-      // A failed dispatch must not be retried by Rocket.Chat: the user has
-      // already been told the reply failed, and the redelivered `changed`
-      // frames would otherwise re-run the pipeline indefinitely.
-      await this.onError(error);
-    } finally {
-      await this.checkpointStore.markSeen(this.accountId, messageId);
-      this.inflightMessages.delete(messageId);
-    }
+    await this.enqueueForRoom(roomId, async () => {
+      try {
+        await this.onEvent(event);
+      } catch (error) {
+        // A failed dispatch must not be retried by Rocket.Chat: the user has
+        // already been told the reply failed, and the redelivered `changed`
+        // frames would otherwise re-run the pipeline indefinitely.
+        await this.onError(error);
+      } finally {
+        await this.checkpointStore.markSeen(this.accountId, messageId);
+        this.inflightMessages.delete(messageId);
+      }
+    });
   }
 
   private async shouldIgnoreMessage(message: RocketChatMessageRecord): Promise<boolean> {
@@ -303,6 +320,31 @@ class RocketChatWebSocketTransport implements InboundTransport {
     }
 
     return this.checkpointStore.hasSeen(this.accountId, message._id);
+  }
+
+  /**
+   * Append `task` to the room's chain and return a promise for *this* task.
+   * A rejected predecessor must not skip the successor, so the chain is
+   * built on a swallowed copy; the caller still sees its own failure.
+   */
+  private enqueueForRoom(roomId: string, task: () => Promise<void>): Promise<void> {
+    const previous = this.roomQueues.get(roomId) ?? Promise.resolve();
+    const result = previous.then(task, task);
+    let tracked: Promise<void>;
+    tracked = result.then(
+      () => {
+        if (this.roomQueues.get(roomId) === tracked) {
+          this.roomQueues.delete(roomId);
+        }
+      },
+      () => {
+        if (this.roomQueues.get(roomId) === tracked) {
+          this.roomQueues.delete(roomId);
+        }
+      }
+    );
+    this.roomQueues.set(roomId, tracked);
+    return result;
   }
 
   private send(frame: Record<string, unknown>): void {

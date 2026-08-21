@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   THINKING_PLACEHOLDER,
   TOOL_PROGRESS_HEADER,
+  TOOL_REPLY_FALLBACK,
   createReplyProgressState,
   formatFinalReply,
   formatReplyUpdate,
@@ -69,6 +70,34 @@ describe("formatReplyUpdate tool progress", () => {
   it("falls back to a single line when no progress state is supplied", () => {
     expect(formatReplyUpdate("tool", { text: "🔎 Web Search" })).toBe("🔎 Web Search");
     expect(formatReplyUpdate("tool", {})).toBe("🔧 Tool wird benutzt …");
+  });
+});
+
+describe("formatReplyUpdate with a failed tool step", () => {
+  // Kurt read an .xlsx, a `cat` from the wrong directory failed, he
+  // corrected himself and read the file completely. The customer saw only
+  // "⚠️ 🛠️ show xl/workbook.xml → … failed" and concluded the agent had
+  // crashed. A failed intermediate step is not a result.
+  const failedStep = "⚠️ 🛠️ show xl/workbook.xml → print text → show xl/_rels/workbook.xml.rels (in /tmp/xlsx) failed";
+
+  it("does not surface the failed step when there is no progress view", () => {
+    const rendered = formatReplyUpdate("tool", { text: failedStep });
+    expect(rendered).not.toContain("failed");
+    expect(rendered).toBe(TOOL_REPLY_FALLBACK);
+  });
+
+  it("keeps earlier steps visible instead of appending the failure", () => {
+    const progress = { lines: ["read agent.yaml"] };
+    const rendered = formatReplyUpdate("tool", { text: failedStep }, progress);
+    expect(progress.lines).toEqual(["read agent.yaml"]);
+    expect(rendered).toContain("read agent.yaml");
+    expect(rendered).not.toContain("failed");
+  });
+
+  it("still shows normal steps", () => {
+    const progress = { lines: [] as string[] };
+    const rendered = formatReplyUpdate("tool", { text: "read agent.yaml" }, progress);
+    expect(rendered).toContain("read agent.yaml");
   });
 });
 

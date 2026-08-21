@@ -71,6 +71,12 @@ export const FAILED_REPLY_FALLBACK = "❌ Etwas ist beim Antworten schiefgelaufe
 export const TOOL_PROGRESS_HEADER = "🛠️ Ich arbeite daran …";
 
 /**
+ * A tool-progress line that reports a failed step. OpenClaw prefixes such
+ * lines with ⚠️ and closes them with "failed"; either signal is enough.
+ */
+const TOOL_STEP_FAILURE = /^\s*⚠️|\bfailed\s*$/;
+
+/**
  * OpenClaw marks tool-owned payloads with a wrench prefix (core itself
  * checks `startsWith("🛠️") || startsWith("🔧")`); failure notices carry a
  * leading ⚠️ on top. Our own progress header uses the same wrench.
@@ -173,13 +179,22 @@ export function formatReplyUpdate(
   }
 
   if (kind === "tool") {
+    // A step the agent already recovered from must never become the
+    // visible result. Kurt read a customer spreadsheet, one `cat` from the
+    // wrong directory failed, he corrected himself and read the file
+    // completely — but the chat kept showing
+    // "⚠️ 🛠️ show xl/workbook.xml → … failed" and the customer concluded
+    // the system had crashed. Real problems reach the user as a final
+    // message with an [[ACHTUNG]] marker, not as a tool trace.
+    const isRecoverableStepFailure = TOOL_STEP_FAILURE.test(content);
+
     // No progress state (legacy callers): fall back to the single-line
     // behaviour. With state, fold the step into the rolling view so the
     // user can follow how the agent is working through the task.
     if (!progress) {
-      return content.length > 0 ? content : TOOL_REPLY_FALLBACK;
+      return content.length > 0 && !isRecoverableStepFailure ? content : TOOL_REPLY_FALLBACK;
     }
-    if (content.length > 0) {
+    if (content.length > 0 && !isRecoverableStepFailure) {
       // Skip consecutive duplicates so a chatty tool loop stays readable.
       if (progress.lines[progress.lines.length - 1] !== content) {
         progress.lines.push(content);

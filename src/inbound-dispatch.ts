@@ -161,6 +161,12 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
    * bot identities map onto different agent loops.
    */
   agent?: string;
+  /**
+   * Keep non-DM conversations isolated by Rocket.Chat thread. This prevents
+   * unrelated threads in the same room from sharing stale agent history and
+   * from competing for the same OpenClaw reply session.
+   */
+  threadScopedSessions?: boolean;
   deliver(payload: OutboundReplyPayload, info: ReplyDeliverInfo): Promise<void>;
   onRecordError(err: unknown): void;
   onDispatchError(err: unknown, info: ReplyDeliverInfo): void;
@@ -170,7 +176,7 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
     roomId: params.event.roomId,
     messageId: params.event.messageId
   };
-  const route = applyAgentOverride(
+  const roomRoute = applyAgentOverride(
     params.channelRuntime.routing.resolveAgentRoute({
       cfg: params.cfg,
       channel: "rocketchat",
@@ -181,6 +187,11 @@ export async function dispatchInboundEventWithChannelRuntime(params: {
       }
     }),
     params.agent
+  );
+  const route = applyThreadScope(
+    roomRoute,
+    params.event,
+    params.threadScopedSessions !== false
   );
   const storePath = params.channelRuntime.session.resolveStorePath(params.cfg.session?.store, {
     agentId: route.agentId
@@ -352,6 +363,28 @@ export function applyAgentOverride(
     mainSessionKey: route.mainSessionKey
       ? rebuildSessionKeyForAgent(route.mainSessionKey, override)
       : undefined
+  };
+}
+
+/**
+ * Rocket.Chat channels are thread-first: a top-level mention starts a thread,
+ * while follow-up messages carry its `tmid`. Use that stable anchor in the
+ * OpenClaw session key so each thread gets independent conversational state.
+ * Direct messages deliberately retain room-scoped continuity.
+ */
+export function applyThreadScope(
+  route: ResolvedAgentRoute,
+  event: Pick<InboundEvent, "roomType" | "messageId" | "tmid">,
+  enabled = true
+): ResolvedAgentRoute {
+  if (!enabled || event.roomType === "direct") {
+    return route;
+  }
+
+  const threadId = event.tmid ?? event.messageId;
+  return {
+    ...route,
+    sessionKey: `${route.sessionKey}:thread:${threadId}`
   };
 }
 

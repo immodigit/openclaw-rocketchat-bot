@@ -94,7 +94,8 @@ describe("startGateway", () => {
           pollIntervalMs: 15_000
         },
         mentionNames: [],
-        forceThread: true
+        forceThread: true,
+        transcribeAudio: true
       },
       abortSignal: abortController.signal,
       setStatus: (status) => {
@@ -148,7 +149,8 @@ describe("startGateway", () => {
           reconnectDelayMs: 5000
         },
         mentionNames: [],
-        forceThread: true
+        forceThread: true,
+        transcribeAudio: true
       },
       abortSignal: abortController.signal
     });
@@ -196,7 +198,8 @@ describe("startGateway", () => {
           reconnectDelayMs: 5000
         },
         mentionNames: [],
-        forceThread: true
+        forceThread: true,
+        transcribeAudio: true
       }
     }).then(
       () => {
@@ -250,7 +253,8 @@ describe("startGateway", () => {
           pollIntervalMs: 15_000
         },
         mentionNames: [],
-        forceThread: true
+        forceThread: true,
+        transcribeAudio: true
       },
       abortSignal: abortController.signal
     }).catch(() => undefined);
@@ -308,7 +312,8 @@ describe("startGateway", () => {
         auth: { mode: "token", userId: "bot-user", accessToken: "token" },
         transport: { mode: "polling", pollIntervalMs: 15_000 },
         mentionNames: [],
-        forceThread: true
+        forceThread: true,
+        transcribeAudio: true
       },
       channelRuntime: {},
       abortSignal: abortController.signal

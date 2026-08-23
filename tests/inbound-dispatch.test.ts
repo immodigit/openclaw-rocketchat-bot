@@ -3,11 +3,62 @@ import { describe, expect, it, vi } from "vitest";
 import type { InboundEvent } from "../src/inbound/types.js";
 import {
   applyAgentOverride,
+  applyThreadScope,
   dispatchInboundEventWithChannelRuntime,
   rebuildSessionKeyForAgent
 } from "../src/inbound-dispatch.js";
 
 describe("dispatchInboundEventWithChannelRuntime", () => {
+  it("isolates channel sessions by Rocket.Chat thread anchor", () => {
+    const route = {
+      agentId: "sabrina-standort",
+      sessionKey: "agent:sabrina-standort:rocketchat:channel:room-1",
+      mainSessionKey: "agent:sabrina-standort:main",
+      accountId: "sabrina"
+    };
+
+    expect(
+      applyThreadScope(route, {
+        roomType: "channel",
+        messageId: "reply-2",
+        tmid: "thread-root-1"
+      })
+    ).toEqual({
+      ...route,
+      sessionKey:
+        "agent:sabrina-standort:rocketchat:channel:room-1:thread:thread-root-1"
+    });
+
+    expect(
+      applyThreadScope(route, {
+        roomType: "channel",
+        messageId: "new-root-2",
+        tmid: null
+      })
+    ).toEqual({
+      ...route,
+      sessionKey:
+        "agent:sabrina-standort:rocketchat:channel:room-1:thread:new-root-2"
+    });
+  });
+
+  it("keeps direct-message sessions room scoped", () => {
+    const route = {
+      agentId: "kurt-ceo",
+      sessionKey: "agent:kurt-ceo:rocketchat:direct:dm-1",
+      mainSessionKey: "agent:kurt-ceo:main",
+      accountId: "kurt"
+    };
+
+    expect(
+      applyThreadScope(route, {
+        roomType: "direct",
+        messageId: "message-1",
+        tmid: null
+      })
+    ).toEqual(route);
+  });
+
   it("records and dispatches direct messages through channelRuntime", async () => {
     const resolveAgentRoute = vi.fn().mockReturnValue({
       agentId: "main",
@@ -405,14 +456,16 @@ describe("dispatchInboundEventWithChannelRuntime", () => {
     expect(resolveStorePath).toHaveBeenCalledWith("memory", { agentId: "bettina" });
     expect(readSessionUpdatedAt).toHaveBeenCalledWith({
       storePath: "/tmp/openclaw/bettina-store",
-      sessionKey: "agent:bettina:rocketchat:channel:room-1"
+      sessionKey: "agent:bettina:rocketchat:channel:room-1:thread:m-1"
     });
     expect(finalizeInboundContext).toHaveBeenCalledWith(
-      expect.objectContaining({ SessionKey: "agent:bettina:rocketchat:channel:room-1" })
+      expect.objectContaining({
+        SessionKey: "agent:bettina:rocketchat:channel:room-1:thread:m-1"
+      })
     );
     expect(recordInboundSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionKey: "agent:bettina:rocketchat:channel:room-1",
+        sessionKey: "agent:bettina:rocketchat:channel:room-1:thread:m-1",
         updateLastRoute: expect.objectContaining({
           sessionKey: "agent:bettina:rocketchat:channel:room-1"
         })

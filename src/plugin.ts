@@ -338,6 +338,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               // bots in replies that omit context one message up).
               threadContextClient: client,
               agent: account.agent,
+              threadScopedSessions: forceThread,
               deliver: async (payload, info) => {
                 await session.update({
                   kind: info.kind,

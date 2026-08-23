@@ -349,7 +349,7 @@ describe("createWebSocketTransport", () => {
     // Slow onEvent + slow markSeen reproduces the race: a second
     // DDP delivery arrives while the first dispatch is still mid-flight
     // and the checkpoint has not been persisted yet.
-    let resolveFirst: (() => void) | null = null;
+    let resolveFirst!: () => void;
     const firstHandled = new Promise<void>((resolve) => {
       resolveFirst = resolve;
     });
@@ -416,7 +416,7 @@ describe("createWebSocketTransport", () => {
 
     expect(events).toHaveLength(1);
 
-    resolveFirst?.();
+    resolveFirst();
     await flushAsync();
     await flushAsync();
     expect(events).toHaveLength(1);

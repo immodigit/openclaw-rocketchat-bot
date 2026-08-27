@@ -48,9 +48,25 @@ type ReplyClient = {
   ): Promise<string>;
 };
 
+/**
+ * Persists the fact that a placeholder is in flight, so a process that dies
+ * mid-turn can be cleaned up at the next channel start. Optional: without it
+ * the lifecycle behaves exactly as before.
+ */
+export type PendingReplyTracker = {
+  start(entry: {
+    roomId: string;
+    messageId: string;
+    triggerMessageId?: string;
+  }): Promise<void>;
+  settle(messageId: string): Promise<void>;
+  keepForRetry(messageId: string, finalText: string, outcome?: ReplyOutcome): Promise<void>;
+};
+
 type SendReplyLifecycleOptions = {
   client: ReplyClient;
   roomId: string;
+  pending?: PendingReplyTracker;
   /**
    * Thread message id to anchor the bot's reply to. When set, the
    * placeholder message and any follow-up attachments are posted as
@@ -142,6 +158,26 @@ export async function sendReplyLifecycle(
     options.triggerMessageId
   );
 
+  // Register before any work happens. A process that dies mid-run cannot
+  // write this afterwards — and that is precisely the case reconciliation
+  // has to recover.
+  if (options.pending) {
+    try {
+      await options.pending.start({
+        roomId: options.roomId,
+        messageId: session.messageId,
+        triggerMessageId: options.triggerMessageId
+      });
+    } catch (error) {
+      // Bookkeeping must never cost us the reply itself.
+      console.warn(
+        `[rocketchat] could not record pending reply ${session.messageId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
   const react = async (emoji: string, shouldReact = true): Promise<void> => {
     if (options.triggerMessageId && options.client.reactMessage) {
       // reactMessage is best-effort and swallows its own errors, but guard
@@ -182,6 +218,22 @@ export async function sendReplyLifecycle(
       });
     }
   } catch (error) {
+    // The agent may well have finished and only the delivery broke — that
+    // was bettina on 2026-08-27, whose answer was ready twelve seconds
+    // before the channel finished reconnecting. Hand it to the tracker so
+    // the next start can deliver it late instead of dropping it.
+    const salvaged = session.lastMeaningfulText();
+    if (options.pending && salvaged) {
+      try {
+        await options.pending.keepForRetry(session.messageId, salvaged, session.outcome());
+      } catch (trackerError) {
+        console.warn(
+          `[rocketchat] could not persist undelivered reply ${session.messageId}: ${
+            trackerError instanceof Error ? trackerError.message : String(trackerError)
+          }`
+        );
+      }
+    }
     await session.fail(error);
     await react(REACTION_WORKING, false);
     await react(REACTION_ATTENTION);
@@ -203,6 +255,19 @@ export async function sendReplyLifecycle(
           : undefined;
   if (verdict) {
     await react(verdict);
+  }
+
+  if (options.pending) {
+    try {
+      await options.pending.settle(session.messageId);
+    } catch (error) {
+      // A stale entry only costs one redundant recovery attempt later.
+      console.warn(
+        `[rocketchat] could not clear pending reply ${session.messageId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   return session.messageId;

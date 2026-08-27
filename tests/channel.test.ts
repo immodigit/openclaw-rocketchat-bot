@@ -773,3 +773,93 @@ describe("sendReplyLifecycle with tool notices on the prose path", () => {
     expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":warning:", true);
   });
 });
+
+describe("sendReplyLifecycle with a pending-reply tracker", () => {
+  const tracker = () => ({
+    start: vi.fn().mockResolvedValue(undefined),
+    settle: vi.fn().mockResolvedValue(undefined),
+    keepForRetry: vi.fn().mockResolvedValue(undefined)
+  });
+
+  it("registers the placeholder up front and settles it once the answer is out", async () => {
+    // The entry has to exist *before* the run does any work — a process
+    // that dies mid-run cannot write it afterwards, and that is exactly
+    // the case reconciliation has to clean up.
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+    const pending = tracker();
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      triggerMessageId: "trigger-1",
+      pending,
+      run: async (session) => {
+        expect(pending.start).toHaveBeenCalledWith({
+          roomId: "room-1",
+          messageId: "placeholder-1",
+          triggerMessageId: "trigger-1"
+        });
+        expect(pending.settle).not.toHaveBeenCalled();
+        await session.update({ kind: "final", payload: { text: "Fertig. [[ERLEDIGT]]" } });
+      }
+    });
+
+    expect(pending.settle).toHaveBeenCalledWith("placeholder-1");
+    expect(pending.keepForRetry).not.toHaveBeenCalled();
+  });
+
+  it("hands a finished answer to the tracker when delivery fails", async () => {
+    // bettina finished her liquidity answer 12s before the channel came
+    // back. Losing it was the bug — it has to survive for redelivery.
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValue(new Error("channel offline")),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+    const pending = tracker();
+
+    await expect(
+      sendReplyLifecycle({
+        client,
+        roomId: "room-1",
+        triggerMessageId: "trigger-1",
+        pending,
+        run: async (session) => {
+          await session.update({ kind: "block", payload: { text: "Zwischenstand" } });
+          await session.update({ kind: "final", payload: { text: "Die Antwort. [[ERLEDIGT]]" } });
+        }
+      })
+    ).rejects.toThrow();
+
+    expect(pending.keepForRetry).toHaveBeenCalledWith(
+      "placeholder-1",
+      "Die Antwort.",
+      "done"
+    );
+    expect(pending.settle).not.toHaveBeenCalled();
+  });
+
+  it("works unchanged when no tracker is supplied", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      run: async (session) => {
+        await session.update({ kind: "final", payload: { text: "Fertig." } });
+      }
+    });
+
+    expect(client.updateMessage.mock.calls.at(-1)).toEqual(["room-1", "placeholder-1", "Fertig."]);
+  });
+});

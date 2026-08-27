@@ -61,6 +61,13 @@ export const EMPTY_REPLY_FALLBACK = "(no reply generated)";
 export const TOOL_REPLY_FALLBACK = "🔧 Tool wird benutzt …";
 export const BLOCK_REPLY_FALLBACK = "✍️ Antwort wird gebaut …";
 export const FAILED_REPLY_FALLBACK = "❌ Etwas ist beim Antworten schiefgelaufen. Bitte nochmal mentionen.";
+/**
+ * Shown when a previous process died mid-turn and left its placeholder
+ * behind. The watchdog that would normally time the turn out lives in that
+ * same process, so without this nobody ever clears the "⏳ Moment …".
+ */
+export const INTERRUPTED_REPLY_FALLBACK =
+  "❌ Der Lauf wurde unterbrochen (Neustart). Bitte nochmal mentionen.";
 
 /**
  * Header above the live "what is the agent doing" list. The moment the

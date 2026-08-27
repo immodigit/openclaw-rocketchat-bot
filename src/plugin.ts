@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { FileCheckpointStore } from "./checkpoints.js";
+import { FilePendingReplyStore, reconcilePendingReplies } from "./pending-replies.js";
 import { sendReplyLifecycle, shouldHandleInboundEvent } from "./channel.js";
 import { RocketChatClient } from "./client.js";
 import { parsePluginConfig, type PluginAccountConfig } from "./config.js";
@@ -225,6 +226,27 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     checkpointPathForAccount(account.accountId),
     250
   );
+  const pendingReplyStore = new FilePendingReplyStore(
+    pendingReplyPathForAccount(account.accountId)
+  );
+
+  // Whatever the previous process left mid-turn gets resolved before we
+  // accept new inbound: a finished answer is delivered late, an interrupted
+  // run is marked as such. Best-effort — a failure here must not stop the
+  // channel from coming up.
+  try {
+    await reconcilePendingReplies({
+      accountId: account.accountId,
+      client,
+      store: pendingReplyStore
+    });
+  } catch (error) {
+    console.warn(
+      `[rocketchat:${account.accountId}] pending-reply reconciliation failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
   const fatalError = createDeferred<void>();
   let warnedAboutMissingRuntime = false;
   let warnedAboutMissingTranscribeKey = false;
@@ -324,6 +346,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           // (✅ done / ❌ failed / ⚠️ stuck) so the outcome is visible
           // at a glance, independent of the reply body.
           triggerMessageId: event.messageId,
+          pending: {
+            start: (entry) => pendingReplyStore.start(account.accountId, entry),
+            settle: (messageId) => pendingReplyStore.settle(account.accountId, messageId),
+            keepForRetry: (messageId, finalText, outcome) =>
+              pendingReplyStore.keepForRetry(account.accountId, messageId, finalText, outcome)
+          },
           run: async (session) => {
             await dispatchInboundEventWithChannelRuntime({
               cfg: (ctx.cfg ?? {}) as OpenClawConfigLike,
@@ -409,6 +437,20 @@ export function checkpointPathForAccount(
   }
 ): string {
   return join(resolveOpenClawStateDir(options), "rocketchat", `${accountId}.json`);
+}
+
+/**
+ * Placeholders whose turn never confirmed delivery. Sits next to the
+ * checkpoints so both survive a pod restart on the same volume.
+ */
+export function pendingReplyPathForAccount(
+  accountId: string,
+  options?: {
+    env?: Record<string, string | undefined>;
+    homedir?: () => string;
+  }
+): string {
+  return join(resolveOpenClawStateDir(options), "rocketchat", `${accountId}.pending.json`);
 }
 
 export function attachmentMediaDir(options?: {

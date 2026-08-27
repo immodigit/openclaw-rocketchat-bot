@@ -105,12 +105,13 @@ describe("startGateway", () => {
       resolved = true;
     });
 
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Wait for the condition, not for a fixed number of ticks: startGateway
+    // does async work (pending-reply reconciliation) before the transport
+    // comes up, and the exact tick count is not what this test is about.
+    await vi.waitFor(() => expect(start).toHaveBeenCalledTimes(1));
 
     expect(resolved).toBe(false);
     expect(safePollOnce).toHaveBeenCalledTimes(1);
-    expect(start).toHaveBeenCalledTimes(1);
     expect(stop).not.toHaveBeenCalled();
 
     abortController.abort();
@@ -155,10 +156,8 @@ describe("startGateway", () => {
       abortSignal: abortController.signal
     });
 
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.waitFor(() => expect(createWebSocketTransport).toHaveBeenCalledTimes(1));
 
-    expect(createWebSocketTransport).toHaveBeenCalledTimes(1);
     expect(start).not.toHaveBeenCalled();
     expect(safePollOnce).not.toHaveBeenCalled();
 
@@ -210,11 +209,9 @@ describe("startGateway", () => {
       }
     );
 
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await vi.waitFor(() => expect(websocketStart).toHaveBeenCalledTimes(1));
 
     expect(resolved).toBe(false);
-    expect(websocketStart).toHaveBeenCalledTimes(1);
     expect(websocketStop).not.toHaveBeenCalled();
 
     await websocketTransportOptions?.onDisconnect?.(new Error("socket closed"));

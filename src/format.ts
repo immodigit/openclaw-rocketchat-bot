@@ -71,6 +71,30 @@ export const FAILED_REPLY_FALLBACK = "❌ Etwas ist beim Antworten schiefgelaufe
 export const TOOL_PROGRESS_HEADER = "🛠️ Ich arbeite daran …";
 
 /**
+ * OpenClaw marks tool-owned payloads with a wrench prefix (core itself
+ * checks `startsWith("🛠️") || startsWith("🔧")`); failure notices carry a
+ * leading ⚠️ on top. Our own progress header uses the same wrench.
+ *
+ * This matters because the host only emits `kind:"tool"` deliveries when
+ * verbose tool progress is switched on. With it off — the state of the
+ * production instance — the very same notices arrive as `block`/`final`
+ * prose, where they would otherwise be treated as the agent's answer.
+ *
+ * Deliberately anchored on the wrench, never on ⚠️ alone: an agent is
+ * allowed to open a real answer with "⚠️ Achtung: …", and that has to
+ * reach the user untouched.
+ */
+const TOOL_TRACE_PREFIX = /^\s*(?:\u{26A0}\u{FE0F}?\s*)?(?:\u{1F6E0}|\u{1F527})/u;
+
+/**
+ * True when a payload is a trace of *how* the agent worked rather than
+ * what it concluded. Such a trace must never become the visible result.
+ */
+export function isToolTraceStub(text: string | undefined): boolean {
+  return typeof text === "string" && TOOL_TRACE_PREFIX.test(text);
+}
+
+/**
  * Keep the progress view compact — only the most recent steps stay
  * visible, older lines roll off the top.
  */

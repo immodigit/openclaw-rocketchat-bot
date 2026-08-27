@@ -4,12 +4,14 @@ import {
   extractStatusSignal,
   formatReplyFailure,
   formatReplyUpdate,
+  isToolTraceStub,
   REACTION_ATTENTION,
   REACTION_DONE,
   REACTION_INPUT,
   REACTION_WORKING,
   type ReplyOutcome,
   THINKING_PLACEHOLDER,
+  TOOL_REPLY_FALLBACK,
   WATCHDOG_STAGES
 } from "./format.js";
 import type { InboundEvent } from "./inbound/types.js";
@@ -86,6 +88,11 @@ type ReplySession = {
   update(params: { kind: ReplyStageKind; payload: ReplyStagePayload }): Promise<void>;
   hasFinalUpdate(): boolean;
   /**
+   * The last tool trace shown in place of an answer. Only used as a
+   * last-resort salvage so a trace-only run does not end in silence.
+   */
+  lastToolTraceText(): string | undefined;
+  /**
    * The last meaningful prose the agent produced (a `block` or `final`
    * update carrying real text). Used to salvage a closing reply when the
    * run ends without a clean final — otherwise a trailing tool update
@@ -160,7 +167,7 @@ export async function sendReplyLifecycle(
         // produced real prose one step earlier (a block), promote it as
         // the closing reply. Only when there's nothing to salvage do we
         // fall back to the empty-final behaviour (delete / "(no reply)").
-        const salvaged = session.lastMeaningfulText();
+        const salvaged = session.lastMeaningfulText() ?? session.lastToolTraceText();
         await session.update({
           kind: "final",
           payload: salvaged ? { text: salvaged } : {}
@@ -217,6 +224,10 @@ async function createReplySession(
   // Last real prose the agent emitted (block/final with text). Lets the
   // lifecycle salvage a closing reply if the run ends on a tool stub.
   let lastMeaningful: string | undefined;
+  // Last tool trace we showed. Not prose — kept only so a run that produced
+  // nothing but a failed tool still leaves something readable behind
+  // instead of a deleted placeholder.
+  let lastToolTrace: string | undefined;
   // Terminal outcome the agent signalled via a status marker (done / input /
   // attention). Drives which reaction replaces the ⏳ at the end.
   let outcome: ReplyOutcome | undefined;
@@ -292,6 +303,26 @@ async function createReplySession(
       // First real update from the agent — the user now sees real
       // content, so the watchdog has done its job.
       stopWatchdog();
+
+      // Tool notices reach us as prose whenever verbose tool progress is
+      // off, because the host then never emits kind:"tool" at all. They
+      // are queued and flushed at the end of the turn, so they arrive
+      // *after* the answer: on 2026-08-26 marco's finished posting-calendar
+      // reply was overwritten 620 ms later by "⚠️ 🛠️ Bash failed: …", and
+      // because that notice came in as `final` the salvage below never ran.
+      // A trace is not an answer — it may neither be written over prose,
+      // nor be remembered as prose, nor close the turn.
+      if ((kind === "block" || kind === "final") && isToolTraceStub(payload.text)) {
+        lastToolTrace = payload.text?.trim();
+        if (lastMeaningful !== undefined) {
+          return;
+        }
+        // Nothing to protect yet: showing the trace beats showing nothing,
+        // and it keeps the message alive for the salvage step.
+        await client.updateMessage(roomId, messageId, lastToolTrace ?? TOOL_REPLY_FALLBACK);
+        return;
+      }
+
       if (kind === "final") {
         finalUpdated = true;
       }
@@ -347,6 +378,7 @@ async function createReplySession(
       }
     },
     hasFinalUpdate: () => finalUpdated,
+    lastToolTraceText: () => lastToolTrace,
     lastMeaningfulText: () => lastMeaningful,
     outcome: () => outcome,
     fail: async (_error) => {

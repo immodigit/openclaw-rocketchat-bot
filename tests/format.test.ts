@@ -5,7 +5,8 @@ import {
   TOOL_PROGRESS_HEADER,
   createReplyProgressState,
   formatFinalReply,
-  formatReplyUpdate
+  formatReplyUpdate,
+  isToolTraceStub
 } from "../src/format.js";
 
 describe("formatFinalReply", () => {
@@ -68,5 +69,33 @@ describe("formatReplyUpdate tool progress", () => {
   it("falls back to a single line when no progress state is supplied", () => {
     expect(formatReplyUpdate("tool", { text: "🔎 Web Search" })).toBe("🔎 Web Search");
     expect(formatReplyUpdate("tool", {})).toBe("🔧 Tool wird benutzt …");
+  });
+});
+
+describe("isToolTraceStub", () => {
+  // OpenClaw only emits kind:"tool" deliveries when verbose tool progress
+  // is switched on. With it off — the state of the production instance —
+  // tool notices arrive on the prose path (block/final) instead, wearing
+  // the same wrench prefix core uses to mark tool-owned payloads.
+  it("recognises tool failure notices delivered as prose", () => {
+    expect(
+      isToolTraceStub(
+        '⚠️ 🛠️ Bash failed: print lines 1-260 from scripts/notion-helpers.js → search "Datum" in 2>/dev/null (workspace)'
+      )
+    ).toBe(true);
+    expect(isToolTraceStub("⚠️ 🔧 gog drive ls --parent 1no6 failed")).toBe(true);
+    expect(isToolTraceStub("🛠️ Ich arbeite daran …")).toBe(true);
+  });
+
+  it("does not swallow an answer that merely opens with a warning sign", () => {
+    // An agent is allowed to lead with ⚠️ — that is a real answer and must
+    // reach the user untouched. Anchoring on ⚠️ alone would eat it.
+    expect(isToolTraceStub("⚠️ Achtung: der Postingkalender ist ab 01.09. leer.")).toBe(false);
+    expect(isToolTraceStub("Nein – heute wurde nichts gepostet.")).toBe(false);
+  });
+
+  it("treats absent text as no stub", () => {
+    expect(isToolTraceStub(undefined)).toBe(false);
+    expect(isToolTraceStub("")).toBe(false);
   });
 });

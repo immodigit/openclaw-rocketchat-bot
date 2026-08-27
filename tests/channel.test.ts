@@ -645,3 +645,131 @@ describe("sendReplyLifecycle", () => {
     vi.useRealTimers();
   });
 });
+
+describe("sendReplyLifecycle with tool notices on the prose path", () => {
+  // The production instance runs with verbose tool progress off, so the
+  // host never emits kind:"tool" — tool failure notices arrive as block or
+  // final deliveries instead. On 2026-08-26 marco produced a complete
+  // posting-calendar answer at 22:40:48.070; 620 ms later the queued
+  // "⚠️ 🛠️ Bash failed: …" notice landed as the closing delivery and
+  // overwrote it. The ✅ reaction stayed — proof the answer had arrived
+  // and been written — but the user saw only the tool trace.
+  const toolNotice =
+    '⚠️ 🛠️ Bash failed: print lines 1-260 from scripts/notion-helpers.js → search "Datum" in 2>/dev/null (workspace)';
+  const answer = "Nein – heute wurde nichts gepostet. Der Kalender ist zu dünn.";
+
+  it("keeps the answer when a tool notice arrives as the closing final delivery", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      deleteMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      triggerMessageId: "trigger-1",
+      run: async (session) => {
+        await session.update({ kind: "block", payload: { text: `${answer} [[ERLEDIGT]]` } });
+        await session.update({ kind: "final", payload: { text: toolNotice } });
+      }
+    });
+
+    expect(client.updateMessage.mock.calls.at(-1)).toEqual(["room-1", "placeholder-1", answer]);
+    expect(client.deleteMessage).not.toHaveBeenCalled();
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":white_check_mark:", true);
+  });
+
+  it("keeps the answer when a tool notice arrives as a trailing block delivery", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      deleteMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      run: async (session) => {
+        await session.update({ kind: "final", payload: { text: answer } });
+        await session.update({ kind: "block", payload: { text: toolNotice } });
+      }
+    });
+
+    expect(client.updateMessage.mock.calls.at(-1)).toEqual(["room-1", "placeholder-1", answer]);
+  });
+
+  it("does not let a tool notice count as the final delivery, so salvage still runs", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      deleteMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      run: async (session) => {
+        await session.update({ kind: "block", payload: { text: answer } });
+        await session.update({ kind: "final", payload: { text: toolNotice } });
+        await session.update({ kind: "final", payload: { text: toolNotice } });
+      }
+    });
+
+    expect(client.updateMessage.mock.calls.at(-1)).toEqual(["room-1", "placeholder-1", answer]);
+  });
+
+  it("keeps a lone tool notice visible rather than deleting the message", async () => {
+    // Nothing to salvage: the run really did produce only a failed tool.
+    // Silence is worse than the trace — the user must see that something
+    // happened and can re-trigger.
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      deleteMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      run: async (session) => {
+        await session.update({ kind: "final", payload: { text: toolNotice } });
+      }
+    });
+
+    expect(client.deleteMessage).not.toHaveBeenCalled();
+    expect(client.updateMessage.mock.calls.at(-1)).toEqual([
+      "room-1",
+      "placeholder-1",
+      toolNotice
+    ]);
+  });
+
+  it("still delivers an answer that opens with a warning sign", async () => {
+    const client = {
+      postMessage: vi.fn().mockResolvedValue("placeholder-1"),
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await sendReplyLifecycle({
+      client,
+      roomId: "room-1",
+      triggerMessageId: "trigger-1",
+      run: async (session) => {
+        await session.update({
+          kind: "final",
+          payload: { text: "⚠️ Achtung: der Kalender ist ab 01.09. leer. [[ACHTUNG]]" }
+        });
+      }
+    });
+
+    expect(client.updateMessage.mock.calls.at(-1)).toEqual([
+      "room-1",
+      "placeholder-1",
+      "⚠️ Achtung: der Kalender ist ab 01.09. leer."
+    ]);
+    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":warning:", true);
+  });
+});

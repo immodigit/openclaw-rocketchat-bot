@@ -47,6 +47,11 @@ Rocket.Chat server
 
 ### Reply lifecycle (`src/channel.ts`)
 
+> **Vor Änderungen an `channel.ts` / `format.ts`: [docs/reply-lifecycle.md](docs/reply-lifecycle.md) lesen.**
+> Ein Turn schreibt in *eine* Nachricht, der letzte Write gewinnt — und `kind` sagt
+> nicht zuverlässig, ob ein Payload Prosa oder ein Tool-Trace ist.
+
+
 1. Post a `"思考中..."` placeholder message via `chat.postMessage`.
 2. On each `tool`/`block`/`final` deliver callback, update that same message via `chat.update`.
 3. If the run throws, the placeholder is replaced with an error message.

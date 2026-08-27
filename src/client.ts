@@ -502,12 +502,31 @@ export class RocketChatClient {
   }
 
   private async parseJsonResponse(response: Response): Promise<JsonObject> {
-    const payload = (await response.json()) as JsonObject;
+    // Read as text first: not every responder speaks JSON. While Rocket.Chat
+    // restarts, the ingress answers with a plain-text 503 ("no available
+    // server"), and calling response.json() on that threw a bare SyntaxError
+    // — not a RocketChatClientError, no status in the message, and it jumped
+    // clean over the rate-limit branch below. That is what put all bot
+    // channels into restart backoff on 2026-08-27 with an error message
+    // ("Unexpected token 'o'") that says nothing about the actual cause.
+    const raw = await response.text();
+    const payload = tryParseJsonObject(raw);
 
-    if (response.status === 429 || payload.errorType === "error-too-many-requests") {
-      throw new RocketChatRateLimitError(getErrorMessage(payload, "Rocket.Chat API rate limited"), {
-        retryAfterMs: getRetryAfterMs(response, payload)
-      });
+    if (response.status === 429 || payload?.errorType === "error-too-many-requests") {
+      throw new RocketChatRateLimitError(
+        payload
+          ? getErrorMessage(payload, "Rocket.Chat API rate limited")
+          : "Rocket.Chat API rate limited",
+        { retryAfterMs: getRetryAfterMs(response, payload ?? {}) }
+      );
+    }
+
+    if (!payload) {
+      throw new RocketChatClientError(
+        `Rocket.Chat returned a non-JSON response (HTTP ${response.status}${
+          response.statusText ? ` ${response.statusText}` : ""
+        }): ${summarizeBody(raw)}`
+      );
     }
 
     if (!response.ok) {
@@ -671,4 +690,34 @@ function mapSubscriptionType(type: string | undefined): RoomInfo["type"] {
   }
 
   return "channel";
+}
+
+/**
+ * Parses a response body that is *expected* to be a JSON object, returning
+ * undefined instead of throwing when it is anything else (an ingress error
+ * page, a plain-text 503, an empty body).
+ */
+function tryParseJsonObject(raw: string): JsonObject | undefined {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as JsonObject;
+    }
+  } catch {
+    // Falls through to undefined — the caller reports it by status.
+  }
+  return undefined;
+}
+
+/** Keeps a foreign error body short enough to be readable in a log line. */
+function summarizeBody(raw: string, maxChars = 200): string {
+  const collapsed = raw.trim().replace(/\s+/g, " ");
+  if (collapsed.length === 0) {
+    return "(empty body)";
+  }
+  return collapsed.length > maxChars ? `${collapsed.slice(0, maxChars - 1)}…` : collapsed;
 }

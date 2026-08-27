@@ -515,7 +515,65 @@ describe("RocketChatClient", () => {
       retryAfterMs: 35000
     });
   });
+  // While Rocket.Chat restarts, Traefik answers with a plain-text 503
+  // ("no available server"). Parsing that as JSON threw
+  // `SyntaxError: Unexpected token 'o'` — an error nobody can act on, that
+  // is not a RocketChatClientError, and that skipped the rate-limit branch
+  // entirely. On 2026-08-27 it put all 13 bot channels into restart backoff.
+  it("reports a non-JSON error body by status instead of failing to parse it", async () => {
+    // A Response body can only be read once — hand out a fresh one per call.
+    const fetchMock = vi.fn(async () => textResponse("no available server", 503));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new RocketChatClient({
+      serverUrl: "https://chat.example.com",
+      auth: { mode: "token", userId: "user-1", accessToken: "auth-1" }
+    });
+
+    const error = await client.initialize().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RocketChatClientError);
+    expect((error as Error).message).toMatch(/503/);
+    expect((error as Error).message).toMatch(/no available server/);
+    // The raw parser error must not leak through.
+    expect((error as Error).message).not.toMatch(/Unexpected token/);
+  });
+
+  it("still recognises a rate limit when the body is not JSON", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("<html>Too Many Requests</html>", {
+          status: 429,
+          headers: { "Content-Type": "text/html", "Retry-After": "3" }
+        })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new RocketChatClient({
+      serverUrl: "https://chat.example.com",
+      auth: { mode: "token", userId: "user-1", accessToken: "auth-1" }
+    });
+
+    await expect(client.initialize()).rejects.toThrow(RocketChatRateLimitError);
+  });
+
+  it("reports an unparseable body on a 200 as a client error", async () => {
+    // A reverse proxy that answers 200 with an HTML error page must not
+    // surface as a raw SyntaxError either.
+    const fetchMock = vi.fn(async () => textResponse("<html>oops</html>", 200, "text/html"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new RocketChatClient({
+      serverUrl: "https://chat.example.com",
+      auth: { mode: "token", userId: "user-1", accessToken: "auth-1" }
+    });
+
+    await expect(client.initialize()).rejects.toThrow(RocketChatClientError);
+  });
 });
+
+function textResponse(body: string, status: number, contentType = "text/plain"): Response {
+  return new Response(body, { status, headers: { "Content-Type": contentType } });
+}
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {

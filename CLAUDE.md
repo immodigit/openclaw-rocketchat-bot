@@ -131,6 +131,6 @@ Both `debug:client` and `debug:poll` load `.env` from project root, then overlay
   replies** (`forceThread:true`) → poll `GET /api/v1/chat.getThreadMessages?tmid=
   <trigger_msg_id>`; `im.history` omits thread replies. Verified live 2026-05-20:
   bot `konrad` showed `🛠️ Ich arbeite daran …` then the final answer.
-- Pre-existing: `tests/plugin-gateway.test.ts` + `tests/websocket.test.ts` have
-  5 unrelated `tsc` errors (transcribeAudio / never-callable); `npm test` (vitest)
-  is green, `npm run build` (src only) is clean.
+- Stand 2026-08-27: `npm test` (166), `npm run typecheck` und `npm run build` sind
+  alle sauber. Die frueher hier notierten 5 `tsc`-Fehler in `plugin-gateway.test.ts`
+  / `websocket.test.ts` existieren nicht mehr.

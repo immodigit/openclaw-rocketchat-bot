@@ -119,3 +119,92 @@ describe("reconcilePendingReplies", () => {
     expect(client.updateMessage).not.toHaveBeenCalled();
   });
 });
+
+describe("reconcilePendingReplies under a backlog", () => {
+  // Am 28.08.2026 hinterliessen drei Pod-Neustarts 1143, dann 8653
+  // Platzhalter. Jeder wurde beim Start in eine Abbruchmeldung verwandelt —
+  // die Kundenchats waren unbenutzbar. Eine Abbruchmeldung ist eine
+  // Hoeflichkeit, keine Buchhaltung: ein paar genuegen, der Rest ist Laerm.
+  const flood = (n: number, roomId = "r1") =>
+    Array.from({ length: n }, (_, i) => ({
+      roomId,
+      messageId: `m${i}`,
+      triggerMessageId: `t${i}`
+    }));
+
+  it("posts only a handful of interruption notices and settles the rest silently", async () => {
+    const store = await storeInTempDir();
+    for (const e of flood(40)) await store.start("vera", e);
+
+    const client = {
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await reconcilePendingReplies({ accountId: "vera", client, store });
+
+    expect(client.updateMessage.mock.calls.length).toBeLessThanOrEqual(3);
+    // Nichts bleibt liegen: was nicht gemeldet wird, wird stillschweigend
+    // abgeraeumt, sonst waechst der Rueckstand ueber jeden Neustart weiter.
+    expect(await store.list("vera")).toEqual([]);
+  });
+
+  it("keeps every room informed instead of spending the budget on one", async () => {
+    const store = await storeInTempDir();
+    for (const e of flood(20, "ankauf")) await store.start("vera", e);
+    for (const e of flood(20, "verwaltung")) await store.start("vera", { ...e, messageId: `v-${e.messageId}` });
+
+    const client = {
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await reconcilePendingReplies({ accountId: "vera", client, store });
+
+    const rooms = new Set(client.updateMessage.mock.calls.map((c) => c[0]));
+    expect(rooms).toEqual(new Set(["ankauf", "verwaltung"]));
+  });
+
+  // Der Deckel darf niemals eine fertige Antwort verschlucken. Eine
+  // Abbruchmeldung ist ersetzbar, eine Antwort ist es nicht.
+  it("never drops an answer, however large the backlog", async () => {
+    const store = await storeInTempDir();
+    for (const e of flood(30)) {
+      await store.start("vera", e);
+      await store.keepForRetry("vera", e.messageId, `Antwort ${e.messageId}`, "done");
+    }
+
+    const client = {
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await reconcilePendingReplies({ accountId: "vera", client, store });
+
+    expect(client.updateMessage).toHaveBeenCalledTimes(30);
+    expect(await store.list("vera")).toEqual([]);
+  });
+
+  // Ein Platzhalter von vorgestern braucht keine Entschuldigung mehr — der
+  // Nutzer hat den Thread laengst verlassen.
+  it("does not announce an interruption for a stale placeholder", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rc-pending-"));
+    const path = join(dir, "pending.json");
+    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    await writeFile(
+      path,
+      JSON.stringify({ vera: [{ roomId: "r1", messageId: "old", startedAt: twoDaysAgo }] })
+    );
+    const store = new FilePendingReplyStore(path);
+
+    const client = {
+      updateMessage: vi.fn().mockResolvedValue(undefined),
+      reactMessage: vi.fn().mockResolvedValue(undefined)
+    };
+
+    await reconcilePendingReplies({ accountId: "vera", client, store });
+
+    expect(client.updateMessage).not.toHaveBeenCalled();
+    expect(await store.list("vera")).toEqual([]);
+  });
+});

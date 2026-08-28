@@ -139,6 +139,69 @@ type PendingReplyReader = {
 };
 
 /**
+ * Eine Abbruchmeldung ist eine Hoeflichkeit, keine Buchhaltung.
+ *
+ * Am 28.08.2026 hinterliessen drei Pod-Neustarts erst 1143, dann 8653
+ * Platzhalter — jeder wurde beim Start in ein "Der Lauf wurde unterbrochen"
+ * verwandelt und die Kundenchats waren unbenutzbar. Zwei Meldungen je Raum
+ * sagen dasselbe wie achttausend.
+ */
+const MAX_INTERRUPTION_NOTICES_PER_ROOM = 2;
+
+/**
+ * Aelter als das darf ein Platzhalter nicht sein, um noch eine Meldung wert
+ * zu sein. Eine Wiederherstellung nach einem Neustart dauert Sekunden; wer
+ * nach sechs Stunden noch wartet, hat den Thread laengst verlassen.
+ */
+const INTERRUPTION_NOTICE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * Teilt den Rueckstand in "muss raus" und "still abraeumen".
+ *
+ * Die Leitplanke: Eine fertige Antwort wird NIE verworfen — sie ist nicht
+ * ersetzbar. Gedeckelt wird ausschliesslich die Abbruchmeldung, und zwar je
+ * Raum, damit ein einzelner ueberlaufender Kanal nicht das ganze Budget
+ * aufbraucht und die anderen Raeume stumm bleiben.
+ */
+export function planRecovery(
+  entries: PendingReply[],
+  now: number = Date.now()
+): { deliver: PendingReply[]; discard: PendingReply[] } {
+  const deliver: PendingReply[] = [];
+  const discard: PendingReply[] = [];
+  const noticesByRoom = new Map<string, PendingReply[]>();
+
+  for (const entry of entries) {
+    if (entry.finalText !== undefined) {
+      deliver.push(entry);
+      continue;
+    }
+    const startedAt = Date.parse(entry.startedAt);
+    // Ein unlesbares Datum gilt als frisch: im Zweifel lieber melden als
+    // eine echte Unterbrechung verschlucken.
+    const age = Number.isNaN(startedAt) ? 0 : now - startedAt;
+    if (age > INTERRUPTION_NOTICE_MAX_AGE_MS) {
+      discard.push(entry);
+      continue;
+    }
+    const bucket = noticesByRoom.get(entry.roomId) ?? [];
+    bucket.push(entry);
+    noticesByRoom.set(entry.roomId, bucket);
+  }
+
+  for (const bucket of noticesByRoom.values()) {
+    // Die juengsten zuletzt: der Nutzer sieht die Meldung dort, wo er
+    // zuletzt gewartet hat.
+    const keep = bucket.slice(-MAX_INTERRUPTION_NOTICES_PER_ROOM);
+    const drop = bucket.slice(0, Math.max(0, bucket.length - keep.length));
+    deliver.push(...keep);
+    discard.push(...drop);
+  }
+
+  return { deliver, discard };
+}
+
+/**
  * Clean up whatever the previous process left behind. Runs once per channel
  * start, before any new inbound is handled:
  *
@@ -159,7 +222,21 @@ export async function reconcilePendingReplies(params: {
     return;
   }
 
-  for (const entry of entries) {
+  const { deliver, discard } = planRecovery(entries);
+
+  // Stillschweigend abraeumen, damit der Rueckstand nicht ueber den
+  // naechsten Neustart weiterwaechst. Sichtbar bleibt es im Log, nicht im
+  // Kundenchat.
+  for (const entry of discard) {
+    await store.settle(accountId, entry.messageId);
+  }
+  if (discard.length > 0) {
+    console.warn(
+      `[rocketchat:${accountId}] discarded ${discard.length} stale placeholder(s) without notifying the room`
+    );
+  }
+
+  for (const entry of deliver) {
     const text = entry.finalText ?? INTERRUPTED_REPLY_FALLBACK;
     try {
       await client.updateMessage(entry.roomId, entry.messageId, text);

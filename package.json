@@ -1,6 +1,6 @@
 {
   "name": "@immodigit/openclaw-rocketchat-bot",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": false,
   "description": "Rocket.Chat channel plugin for OpenClaw — fork with thread-anchored replies",
   "repository": {

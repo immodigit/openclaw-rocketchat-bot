@@ -159,7 +159,36 @@ export function createReplyProgressState(): ReplyProgressState {
   return { lines: [] };
 }
 
+/**
+ * Anbieter-Fehler, die als fertige Antwort im Kundenchat landen wuerden.
+ *
+ * Am 28.08.2026 las Ferdinand: "Check your anthropic billing dashboard and
+ * top up or switch to a different API key." Ein Kunde bekam gesagt, ER solle
+ * seine Rechnung pruefen — falsch und beunruhigend. Der Zugang ist unserer.
+ *
+ * Der Anker ist bewusst die Fehlerform des Anbieters (Guthaben UND
+ * Schluessel/Nutzungskontingent im selben Satz), nicht ein einzelnes Wort:
+ * ein Agent darf ueber Guthaben und Salden reden, ohne verschluckt zu werden.
+ */
+const PROVIDER_BILLING_FAILURE =
+  /(billing error|run out of credits|insufficient balance)[\s\S]{0,200}?(api key|billing dashboard)|third-party apps now draw/i;
+
+export const PROVIDER_FAILURE_REPLY =
+  "⚠️ Ich komme gerade nicht an mein Sprachmodell. Das liegt an unserem Zugang, " +
+  "nicht an dir — Christian ist informiert. Bitte versuch es gleich noch einmal.";
+
+/** True, wenn der Text ein Anbieter-Abrechnungsfehler ist. */
+export function isProviderBillingFailure(text: string | undefined): boolean {
+  return typeof text === "string" && PROVIDER_BILLING_FAILURE.test(text);
+}
+
 export function formatFinalReply(reply: string): string {
+  if (isProviderBillingFailure(reply)) {
+    // Der Originaltext ist fuer den Betrieb wertvoll und fuer den Kunden
+    // schaedlich. Also ins Log, wo Loki ihn einsammelt — nicht in den Chat.
+    console.warn(`[rocketchat] provider billing failure suppressed: ${reply.slice(0, 400)}`);
+    return PROVIDER_FAILURE_REPLY;
+  }
   return reply.trim().length > 0 ? reply : EMPTY_REPLY_FALLBACK;
 }
 

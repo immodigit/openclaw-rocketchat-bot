@@ -128,3 +128,42 @@ describe("isToolTraceStub", () => {
     expect(isToolTraceStub("")).toBe(false);
   });
 });
+
+describe("formatFinalReply with a provider failure", () => {
+  // Wortlaut aus dem Vorfall 28.08.2026, 09:28 UTC (Vera, aus Loki geholt).
+  // Der Kunde las: pruef DEIN Abrechnungs-Dashboard und lade DEIN Guthaben
+  // auf. Beides falsch und beunruhigend — es ist unser Zugang, nicht seiner.
+  const billing =
+    "⚠️ anthropic (claude-opus-4-8) returned a billing error — your API key has run out of credits or has an insufficient balance. Check your anthropic billing dashboard and top up or switch to a different API key.";
+
+  it("never tells the customer to check their own billing", () => {
+    const rendered = formatFinalReply(billing);
+    expect(rendered).not.toMatch(/billing dashboard/i);
+    expect(rendered).not.toMatch(/API key/i);
+    expect(rendered).not.toMatch(/top up/i);
+  });
+
+  it("says what happened in plain German and who is on it", () => {
+    const rendered = formatFinalReply(billing);
+    expect(rendered).toMatch(/Sprachmodell/);
+    expect(rendered).toMatch(/nicht an dir/);
+  });
+
+  it("also catches the newer third-party wording", () => {
+    const rendered = formatFinalReply(
+      "API Error: 400 Third-party apps now draw from your extra usage, not your plan limits. Add more at claude.ai/settings/usage and keep going."
+    );
+    expect(rendered).not.toMatch(/claude\.ai\/settings/);
+    expect(rendered).toMatch(/Sprachmodell/);
+  });
+
+  // Ein Agent darf ueber Abrechnung reden, ohne dass die Antwort
+  // verschluckt wird. Der Anker ist die Anbieter-Fehlerform, nicht das Wort.
+  it("leaves a real answer about billing untouched", () => {
+    const answer =
+      "Die Nebenkostenabrechnung 2025 ist fertig — der Saldo liegt bei 412,80 € zugunsten des Mieters.";
+    expect(formatFinalReply(answer)).toBe(answer);
+    const other = "Ich habe das Guthaben auf dem Mietkonto geprueft: 1.250 €.";
+    expect(formatFinalReply(other)).toBe(other);
+  });
+});

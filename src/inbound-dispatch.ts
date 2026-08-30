@@ -368,9 +368,11 @@ export function applyAgentOverride(
 
 /**
  * Rocket.Chat channels are thread-first: a top-level mention starts a thread,
- * while follow-up messages carry its `tmid`. Use that stable anchor in the
- * OpenClaw session key so each thread gets independent conversational state.
- * Direct messages deliberately retain room-scoped continuity.
+ * while follow-up messages carry its `tmid`. Keep the stable thread anchor for
+ * traceability, but isolate every inbound turn by message id. Thread history is
+ * supplied explicitly by `buildThreadContextSection`; reusing the same model
+ * transcript would let a timed-out tool loop poison every later "retry" in
+ * that thread. Direct messages deliberately retain room-scoped continuity.
  */
 export function applyThreadScope(
   route: ResolvedAgentRoute,
@@ -384,7 +386,7 @@ export function applyThreadScope(
   const threadId = event.tmid ?? event.messageId;
   return {
     ...route,
-    sessionKey: `${route.sessionKey}:thread:${threadId}`
+    sessionKey: `${route.sessionKey}:thread:${threadId}:turn:${event.messageId}`
   };
 }
 

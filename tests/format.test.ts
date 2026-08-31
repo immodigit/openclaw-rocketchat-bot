@@ -167,3 +167,27 @@ describe("formatFinalReply with a provider failure", () => {
     expect(formatFinalReply(other)).toBe(other);
   });
 });
+
+describe("formatFinalReply with an agent timeout", () => {
+  const rawTimeout =
+    "Request timed out before a response was generated. Please try again, or increase `agents.defaults.timeoutSeconds` in your config.";
+
+  it("never exposes OpenClaw configuration advice to the customer", () => {
+    const rendered = formatFinalReply(rawTimeout);
+    expect(rendered).not.toMatch(/agents\.defaults/);
+    expect(rendered).not.toMatch(/increase/i);
+    expect(rendered).not.toMatch(/config/i);
+  });
+
+  it("explains in German that the saved work is retained", () => {
+    const rendered = formatFinalReply(rawTimeout);
+    expect(rendered).toMatch(/nicht abschließen/);
+    expect(rendered).toMatch(/Zwischenstand.*gespeichert/);
+    expect(rendered).toMatch(/nicht an dir/);
+  });
+
+  it("does not hide a normal answer that merely mentions a timeout", () => {
+    const answer = "Der API-Aufruf hat ein Timeout von 30 Sekunden; die Kalkulation selbst ist fertig.";
+    expect(formatFinalReply(answer)).toBe(answer);
+  });
+});

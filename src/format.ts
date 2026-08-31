@@ -136,7 +136,9 @@ export type WatchdogStage = {
 export const WATCHDOG_STAGES: WatchdogStage[] = [
   { afterSeconds: 60, text: "⏳ Bin dran … (1m+)" },
   { afterSeconds: 300, text: "🤔 Dauert länger als üblich (5m+)" },
-  { afterSeconds: 900, text: "❌ Keine Antwort. Bitte @-noch-mal-mentionen.", terminal: true }
+  { afterSeconds: 900, text: "⏳ Läuft weiter … (15m+)" },
+  { afterSeconds: 1800, text: "⏳ Läuft weiter … (30m+)" },
+  { afterSeconds: 2700, text: "⏳ Noch in Arbeit … (45m+)" }
 ];
 
 type ReplyPayload = {

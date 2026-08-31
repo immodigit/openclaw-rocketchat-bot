@@ -4,11 +4,28 @@ import {
   THINKING_PLACEHOLDER,
   TOOL_PROGRESS_HEADER,
   TOOL_REPLY_FALLBACK,
+  WATCHDOG_STAGES,
   createReplyProgressState,
   formatFinalReply,
   formatReplyUpdate,
   isToolTraceStub
 } from "../src/format.js";
+
+describe("WATCHDOG_STAGES for legitimate long-running work", () => {
+  it("keeps reporting progress through 45 minutes without declaring failure", () => {
+    expect(WATCHDOG_STAGES.map((stage) => stage.afterSeconds)).toEqual([
+      60,
+      300,
+      900,
+      1800,
+      2700
+    ]);
+    expect(WATCHDOG_STAGES.every((stage) => stage.terminal !== true)).toBe(true);
+    expect(WATCHDOG_STAGES.slice(2).every((stage) => /weiter|arbeit/i.test(stage.text))).toBe(
+      true
+    );
+  });
+});
 
 describe("formatFinalReply", () => {
   it("uses a stable thinking placeholder with a loading-style emoji", () => {

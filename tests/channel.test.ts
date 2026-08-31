@@ -409,13 +409,13 @@ describe("sendReplyLifecycle", () => {
 
     // Run the lifecycle with a `run` that never emits any update, then
     // resolves at the end. While `run` is pending, advance fake time so
-    // the watchdog fires all three stages.
+    // the watchdog reports each elapsed stage without declaring failure.
     const lifecycle = sendReplyLifecycle({
       client: { postMessage, updateMessage, deleteMessage },
       roomId: "room-1",
       run: () =>
         new Promise<void>((resolve) => {
-          // Resolve once we've advanced past the terminal stage.
+          // Resolve after the 15-minute progress stage.
           setTimeout(resolve, 16 * 60 * 1000);
         })
     });
@@ -428,7 +428,7 @@ describe("sendReplyLifecycle", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     // Second after 5m elapsed: stage 2.
     await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
-    // Third after 15m elapsed: stage 3 (terminal).
+    // Third after 15m elapsed: stage 3 remains non-terminal.
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
 
     // Now let the lifecycle's `run` resolve so the lifecycle finishes.
@@ -437,12 +437,12 @@ describe("sendReplyLifecycle", () => {
 
     const watchdogCalls = updateMessage.mock.calls
       .map(([, , text]) => text as string)
-      .filter((t) => t.includes("Bin dran") || t.includes("Dauert länger") || t.includes("Keine Antwort"));
+      .filter((t) => t.includes("Bin dran") || t.includes("Dauert länger") || t.includes("Läuft weiter"));
 
     expect(watchdogCalls).toEqual([
       "⏳ Bin dran … (1m+)",
       "🤔 Dauert länger als üblich (5m+)",
-      "❌ Keine Antwort. Bitte @-noch-mal-mentionen."
+      "⏳ Läuft weiter … (15m+)"
     ]);
 
     vi.useRealTimers();
@@ -618,7 +618,7 @@ describe("sendReplyLifecycle", () => {
     expect(client.reactMessage).not.toHaveBeenCalled();
   });
 
-  it("reacts ⚠️ on the trigger message when the watchdog gives up", async () => {
+  it("keeps a 46-minute silent run alive without a false warning reaction", async () => {
     vi.useFakeTimers();
     const client = {
       postMessage: vi.fn().mockResolvedValue("placeholder-1"),
@@ -630,14 +630,18 @@ describe("sendReplyLifecycle", () => {
       client,
       roomId: "room-1",
       triggerMessageId: "trigger-1",
-      run: () => new Promise<void>((resolve) => setTimeout(resolve, 16 * 60 * 1000))
+      run: () => new Promise<void>((resolve) => setTimeout(resolve, 46 * 60 * 1000))
     });
 
     await vi.advanceTimersByTimeAsync(0);
-    // Advance past the terminal watchdog stage (900s).
-    await vi.advanceTimersByTimeAsync(15 * 60 * 1000 + 1000);
+    await vi.advanceTimersByTimeAsync(45 * 60 * 1000 + 1000);
 
-    expect(client.reactMessage).toHaveBeenCalledWith("trigger-1", ":warning:", true);
+    expect(client.updateMessage).toHaveBeenCalledWith(
+      "room-1",
+      "placeholder-1",
+      expect.stringMatching(/45m\+.*Arbeit|Arbeit.*45m\+/i)
+    );
+    expect(client.reactMessage).not.toHaveBeenCalledWith("trigger-1", ":warning:", true);
 
     // Let the run resolve so the lifecycle settles.
     await vi.advanceTimersByTimeAsync(60 * 1000);

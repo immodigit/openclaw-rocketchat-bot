@@ -305,10 +305,9 @@ async function createReplySession(
 
   // Watchdog: if the agent never emits any update (crash, hang, lost
   // connection), the "⏳ Moment …" placeholder would otherwise sit in
-  // the channel forever. Walk through WATCHDOG_STAGES (60s/5m/15m) and
-  // update the placeholder text to show liveness — and eventually mark
-  // the bot as dead with a final terminal message asking the user to
-  // re-trigger.
+  // the channel forever. Walk through the non-terminal WATCHDOG_STAGES
+  // (1m/5m/15m/30m/45m) and keep reporting liveness. Long work is allowed;
+  // only the actual OpenClaw run timeout may end it.
   //
   // Stops as soon as the agent emits its first real update (any kind),
   // because from that point the user sees real tool/block/final

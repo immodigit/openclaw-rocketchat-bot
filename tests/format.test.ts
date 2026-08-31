@@ -4,11 +4,28 @@ import {
   THINKING_PLACEHOLDER,
   TOOL_PROGRESS_HEADER,
   TOOL_REPLY_FALLBACK,
+  WATCHDOG_STAGES,
   createReplyProgressState,
   formatFinalReply,
   formatReplyUpdate,
   isToolTraceStub
 } from "../src/format.js";
+
+describe("WATCHDOG_STAGES for legitimate long-running work", () => {
+  it("keeps reporting progress through 45 minutes without declaring failure", () => {
+    expect(WATCHDOG_STAGES.map((stage) => stage.afterSeconds)).toEqual([
+      60,
+      300,
+      900,
+      1800,
+      2700
+    ]);
+    expect(WATCHDOG_STAGES.every((stage) => stage.terminal !== true)).toBe(true);
+    expect(WATCHDOG_STAGES.slice(2).every((stage) => /weiter|arbeit/i.test(stage.text))).toBe(
+      true
+    );
+  });
+});
 
 describe("formatFinalReply", () => {
   it("uses a stable thinking placeholder with a loading-style emoji", () => {
@@ -165,5 +182,29 @@ describe("formatFinalReply with a provider failure", () => {
     expect(formatFinalReply(answer)).toBe(answer);
     const other = "Ich habe das Guthaben auf dem Mietkonto geprueft: 1.250 €.";
     expect(formatFinalReply(other)).toBe(other);
+  });
+});
+
+describe("formatFinalReply with an agent timeout", () => {
+  const rawTimeout =
+    "Request timed out before a response was generated. Please try again, or increase `agents.defaults.timeoutSeconds` in your config.";
+
+  it("never exposes OpenClaw configuration advice to the customer", () => {
+    const rendered = formatFinalReply(rawTimeout);
+    expect(rendered).not.toMatch(/agents\.defaults/);
+    expect(rendered).not.toMatch(/increase/i);
+    expect(rendered).not.toMatch(/config/i);
+  });
+
+  it("explains in German that the saved work is retained", () => {
+    const rendered = formatFinalReply(rawTimeout);
+    expect(rendered).toMatch(/nicht abschließen/);
+    expect(rendered).toMatch(/Zwischenstand.*gespeichert/);
+    expect(rendered).toMatch(/nicht an dir/);
+  });
+
+  it("does not hide a normal answer that merely mentions a timeout", () => {
+    const answer = "Der API-Aufruf hat ein Timeout von 30 Sekunden; die Kalkulation selbst ist fertig.";
+    expect(formatFinalReply(answer)).toBe(answer);
   });
 });

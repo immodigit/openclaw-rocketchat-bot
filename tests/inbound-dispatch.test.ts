@@ -9,7 +9,7 @@ import {
 } from "../src/inbound-dispatch.js";
 
 describe("dispatchInboundEventWithChannelRuntime", () => {
-  it("isolates channel sessions by Rocket.Chat thread anchor", () => {
+  it("isolates every channel turn while retaining the Rocket.Chat thread anchor", () => {
     const route = {
       agentId: "sabrina-standort",
       sessionKey: "agent:sabrina-standort:rocketchat:channel:room-1",
@@ -26,7 +26,7 @@ describe("dispatchInboundEventWithChannelRuntime", () => {
     ).toEqual({
       ...route,
       sessionKey:
-        "agent:sabrina-standort:rocketchat:channel:room-1:thread:thread-root-1"
+        "agent:sabrina-standort:rocketchat:channel:room-1:thread:thread-root-1:turn:reply-2"
     });
 
     expect(
@@ -38,8 +38,33 @@ describe("dispatchInboundEventWithChannelRuntime", () => {
     ).toEqual({
       ...route,
       sessionKey:
-        "agent:sabrina-standort:rocketchat:channel:room-1:thread:new-root-2"
+        "agent:sabrina-standort:rocketchat:channel:room-1:thread:new-root-2:turn:new-root-2"
     });
+  });
+
+  it("does not reuse a poisoned session when the user retries in the same thread", () => {
+    const route = {
+      agentId: "sabrina-standort",
+      sessionKey: "agent:sabrina-standort:rocketchat:channel:room-1",
+      mainSessionKey: "agent:sabrina-standort:main",
+      accountId: "sabrina"
+    };
+
+    const first = applyThreadScope(route, {
+      roomType: "channel",
+      messageId: "failed-turn",
+      tmid: "thread-root-1"
+    });
+    const retry = applyThreadScope(route, {
+      roomType: "channel",
+      messageId: "retry-turn",
+      tmid: "thread-root-1"
+    });
+
+    expect(first.sessionKey).not.toBe(retry.sessionKey);
+    expect(retry.sessionKey).toBe(
+      "agent:sabrina-standort:rocketchat:channel:room-1:thread:thread-root-1:turn:retry-turn"
+    );
   });
 
   it("keeps direct-message sessions room scoped", () => {
@@ -456,16 +481,16 @@ describe("dispatchInboundEventWithChannelRuntime", () => {
     expect(resolveStorePath).toHaveBeenCalledWith("memory", { agentId: "bettina" });
     expect(readSessionUpdatedAt).toHaveBeenCalledWith({
       storePath: "/tmp/openclaw/bettina-store",
-      sessionKey: "agent:bettina:rocketchat:channel:room-1:thread:m-1"
+      sessionKey: "agent:bettina:rocketchat:channel:room-1:thread:m-1:turn:m-1"
     });
     expect(finalizeInboundContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        SessionKey: "agent:bettina:rocketchat:channel:room-1:thread:m-1"
+        SessionKey: "agent:bettina:rocketchat:channel:room-1:thread:m-1:turn:m-1"
       })
     );
     expect(recordInboundSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionKey: "agent:bettina:rocketchat:channel:room-1:thread:m-1",
+        sessionKey: "agent:bettina:rocketchat:channel:room-1:thread:m-1:turn:m-1",
         updateLastRoute: expect.objectContaining({
           sessionKey: "agent:bettina:rocketchat:channel:room-1"
         })

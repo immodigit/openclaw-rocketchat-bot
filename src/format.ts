@@ -136,7 +136,9 @@ export type WatchdogStage = {
 export const WATCHDOG_STAGES: WatchdogStage[] = [
   { afterSeconds: 60, text: "⏳ Bin dran … (1m+)" },
   { afterSeconds: 300, text: "🤔 Dauert länger als üblich (5m+)" },
-  { afterSeconds: 900, text: "❌ Keine Antwort. Bitte @-noch-mal-mentionen.", terminal: true }
+  { afterSeconds: 900, text: "⏳ Läuft weiter … (15m+)" },
+  { afterSeconds: 1800, text: "⏳ Läuft weiter … (30m+)" },
+  { afterSeconds: 2700, text: "⏳ Noch in Arbeit … (45m+)" }
 ];
 
 type ReplyPayload = {
@@ -177,6 +179,14 @@ export const PROVIDER_FAILURE_REPLY =
   "⚠️ Ich komme gerade nicht an mein Sprachmodell. Das liegt an unserem Zugang, " +
   "nicht an dir — Christian ist informiert. Bitte versuch es gleich noch einmal.";
 
+const AGENT_RUN_TIMEOUT =
+  /request timed out before a response was generated[\s\S]{0,240}?(?:agents\.defaults\.timeoutSeconds|please try again)/i;
+
+export const AGENT_TIMEOUT_REPLY =
+  "⚠️ Ich konnte den Auftrag diesmal nicht abschließen. Das liegt an " +
+  "meinem internen Lauf, nicht an dir. Dein bisheriger Zwischenstand bleibt " +
+  "gespeichert; bei deiner nächsten Nachricht starte ich sauber neu.";
+
 /** True, wenn der Text ein Anbieter-Abrechnungsfehler ist. */
 export function isProviderBillingFailure(text: string | undefined): boolean {
   return typeof text === "string" && PROVIDER_BILLING_FAILURE.test(text);
@@ -188,6 +198,10 @@ export function formatFinalReply(reply: string): string {
     // schaedlich. Also ins Log, wo Loki ihn einsammelt — nicht in den Chat.
     console.warn(`[rocketchat] provider billing failure suppressed: ${reply.slice(0, 400)}`);
     return PROVIDER_FAILURE_REPLY;
+  }
+  if (AGENT_RUN_TIMEOUT.test(reply)) {
+    console.warn(`[rocketchat] agent timeout suppressed: ${reply.slice(0, 400)}`);
+    return AGENT_TIMEOUT_REPLY;
   }
   return reply.trim().length > 0 ? reply : EMPTY_REPLY_FALLBACK;
 }
